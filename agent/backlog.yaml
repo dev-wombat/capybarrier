@@ -1,0 +1,41 @@
+version: 1
+plan: docs/superpowers/plans/2026-09-11-capybarrier-reliability.md
+tasks:
+  - id: capability-handshake
+    plan_task: 1
+    status: ready
+    depends_on: []
+    merge_gate: local
+  - id: streaming-transfer
+    plan_task: 2
+    status: pending
+    depends_on: [capability-handshake]
+    merge_gate: local
+  - id: image-clipboard-v2
+    plan_task: 3
+    status: pending
+    depends_on: [capability-handshake]
+    merge_gate: local-runner-required
+    required_evidence: [windows-image-clipboard, macos-image-clipboard]
+  - id: automatic-reconnect
+    plan_task: 4
+    status: pending
+    depends_on: [capability-handshake]
+    merge_gate: local
+  - id: native-file-drop
+    plan_task: 5
+    status: pending
+    depends_on: [streaming-transfer]
+    merge_gate: local-runner-required
+    required_evidence: [windows-native-drop, macos-native-drop]
+  - id: status-first-gui
+    plan_task: 6
+    status: pending
+    depends_on: [automatic-reconnect, streaming-transfer]
+    merge_gate: local
+  - id: release-evidence
+    plan_task: 7
+    status: pending
+    depends_on: [image-clipboard-v2, native-file-drop, status-first-gui]
+    merge_gate: local-runner-required
+    required_evidence: [windows-image-clipboard, macos-image-clipboard, windows-native-drop, macos-native-drop]
