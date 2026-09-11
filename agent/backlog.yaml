@@ -3,7 +3,7 @@ plan: docs/superpowers/plans/2026-09-11-capybarrier-reliability.md
 tasks:
   - id: capability-handshake
     plan_task: 1
-    status: ready
+    status: done
     depends_on: []
     merge_gate: local
   - id: streaming-transfer
