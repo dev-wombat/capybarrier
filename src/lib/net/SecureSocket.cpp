@@ -465,14 +465,14 @@ SecureSocket::secureAccept(int socket)
                 LOG((CLOG_INFO "accepted secure socket"));
                 if (!ensure_peer_certificate()) {
                     secure_accept_retry_ = 0;
-                    disconnect();
+                    disconnect(true);
                     return -1;// Cert fail, error
                 }
             }
             else {
                 LOG((CLOG_ERR "failed to verify server certificate fingerprint"));
                 secure_accept_retry_ = 0;
-                disconnect();
+                disconnect(true);
                 return -1; // Fingerprint failed, error
             }
         }
@@ -541,13 +541,13 @@ SecureSocket::secureConnect(int socket)
     if (verify_cert_fingerprint(barrier::DataDirectories::trusted_servers_ssl_fingerprints_path())) {
         LOG((CLOG_INFO "connected to secure socket"));
         if (!ensure_peer_certificate()) {
-            disconnect();
+            disconnect(true);
             return -1;// Cert fail, error
         }
     }
     else {
         LOG((CLOG_ERR "failed to verify server certificate fingerprint"));
-        disconnect();
+        disconnect(true);
         return -1; // Fingerprint failed, error
     }
     LOG((CLOG_DEBUG2 "connected secure socket"));
@@ -692,9 +692,11 @@ std::string SecureSocket::getError()
 }
 
 void
-SecureSocket::disconnect()
+SecureSocket::disconnect(bool stopRetry)
 {
-    sendEvent(getEvents()->forISocket().stopRetry());
+    if (stopRetry) {
+        sendEvent(getEvents()->forISocket().stopRetry());
+    }
     sendEvent(getEvents()->forISocket().disconnected());
     sendEvent(getEvents()->forIStream().inputShutdown());
 }

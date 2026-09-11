@@ -28,6 +28,7 @@ class MockScreen : public barrier::Screen
 public:
     MockScreen() : barrier::Screen() { }
     MOCK_METHOD0(disable, void());
+    MOCK_CONST_METHOD0(getEventTarget, void*());
     MOCK_CONST_METHOD4(getShape, void(SInt32&, SInt32&, SInt32&, SInt32&));
     MOCK_CONST_METHOD2(getCursorPos, void(SInt32&, SInt32&));
     MOCK_METHOD0(resetOptions, void());

@@ -304,9 +304,6 @@ ClientApp::handleClientFailed(const Event& e, void*)
     }
     else {
         LOG((CLOG_WARN "failed to connect to server: %s", info->m_what.c_str()));
-        if (!m_suspended) {
-            scheduleClientRestart(nextRestartTimeout());
-        }
     }
     delete info;
 }
@@ -318,9 +315,6 @@ ClientApp::handleClientDisconnected(const Event&, void*)
     LOG((CLOG_NOTE "disconnected from server"));
     if (!args().m_restartable) {
         m_events->addEvent(Event(Event::kQuit));
-    }
-    else if (!m_suspended) {
-        scheduleClientRestart(nextRestartTimeout());
     }
     updateStatus();
 }

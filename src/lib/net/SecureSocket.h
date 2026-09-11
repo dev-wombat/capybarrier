@@ -72,7 +72,7 @@ private:
 
     void                showError(const std::string& reason);
     std::string getError();
-    void                disconnect();
+    void                disconnect(bool stopRetry = false);
 
     // may only be called with ssl_mutex_ acquired
     bool verify_cert_fingerprint(const barrier::fs::path& fingerprint_db_path);

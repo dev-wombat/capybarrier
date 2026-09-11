@@ -73,6 +73,12 @@ public:
     */
     void                connect();
 
+    //! Schedule one reconnect attempt when disconnected.
+    void                scheduleReconnect();
+
+    //! Cancel a pending reconnect attempt.
+    void                cancelReconnect();
+
     //! Disconnect
     /*!
     Disconnects from the server with an optional error message.
@@ -111,6 +117,9 @@ public:
     the server.
     */
     bool                isConnecting() const;
+
+    //! Return the delay used by the next reconnect attempt.
+    UInt32              nextReconnectDelaySeconds() const;
 
     //! Get address of server
     /*!
@@ -181,6 +190,7 @@ private:
     void                handleConnected(const Event&, void*);
     void                handleConnectionFailed(const Event&, void*);
     void                handleConnectTimeout(const Event&, void*);
+    void                handleReconnect(const Event&, void*);
     void                handleOutputError(const Event&, void*);
     void                handleDisconnected(const Event&, void*);
     void                handleShapeChanged(const Event&, void*);
@@ -204,6 +214,7 @@ private:
     barrier::Screen*    m_screen;
     barrier::IStream*    m_stream;
     EventQueueTimer*    m_timer;
+    EventQueueTimer*    m_reconnectTimer;
     ServerProxy*        m_server;
     bool                m_ready;
     bool                m_active;
@@ -224,4 +235,5 @@ private:
     bool                m_useSecureNetwork;
     ClientArgs            m_args;
     bool                m_enableClipboard;
+    UInt32              m_nextReconnectDelay;
 };

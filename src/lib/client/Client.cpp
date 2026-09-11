@@ -59,6 +59,7 @@ Client::Client(IEventQueue* events, const std::string& name, const NetworkAddres
     m_screen(screen),
     m_stream(NULL),
     m_timer(NULL),
+    m_reconnectTimer(NULL),
     m_server(NULL),
     m_ready(false),
     m_active(false),
@@ -70,7 +71,8 @@ Client::Client(IEventQueue* events, const std::string& name, const NetworkAddres
     m_socket(NULL),
     m_useSecureNetwork(args.m_enableCrypto),
     m_args(args),
-    m_enableClipboard(true)
+    m_enableClipboard(true),
+    m_nextReconnectDelay(1)
 {
     assert(m_socketFactory != NULL);
     assert(m_screen        != NULL);
@@ -108,6 +110,7 @@ Client::~Client()
     m_events->removeHandler(m_events->forIScreen().resume(),
                               getEventTarget());
 
+    cancelReconnect();
     cleanupTimer();
     cleanupScreen();
     cleanupConnecting();
@@ -121,6 +124,7 @@ Client::connect()
     if (m_stream != NULL) {
         return;
     }
+    cancelReconnect();
     if (m_suspended) {
         m_connectOnResume = true;
         return;
@@ -169,6 +173,7 @@ Client::connect()
         cleanupConnecting();
         cleanupStream();
         LOG((CLOG_DEBUG1 "connection failed"));
+        scheduleReconnect();
         sendConnectionFailedEvent(e.what());
         return;
     }
@@ -178,10 +183,12 @@ void
 Client::disconnect(const char* msg)
 {
     m_connectOnResume = false;
+    cancelReconnect();
     cleanupTimer();
     cleanupScreen();
     cleanupConnecting();
     cleanupConnection();
+    scheduleReconnect();
     if (msg != NULL) {
         sendConnectionFailedEvent(msg);
     }
@@ -193,6 +200,8 @@ Client::disconnect(const char* msg)
 void
 Client::handshakeComplete()
 {
+    cancelReconnect();
+    m_nextReconnectDelay = 1;
     m_ready = true;
     m_screen->enable();
     sendEvent(m_events->forClient().connected(), NULL);
@@ -208,6 +217,12 @@ bool
 Client::isConnecting() const
 {
     return (m_timer != NULL);
+}
+
+UInt32
+Client::nextReconnectDelaySeconds() const
+{
+    return m_nextReconnectDelay;
 }
 
 NetworkAddress
@@ -526,6 +541,36 @@ Client::setupTimer()
 }
 
 void
+Client::scheduleReconnect()
+{
+    if (!m_args.m_restartable || m_suspended || m_stream != NULL || m_reconnectTimer != NULL) {
+        return;
+    }
+
+    const UInt32 delay = nextReconnectDelaySeconds();
+    LOG((CLOG_DEBUG "reconnect in %u seconds", delay));
+    m_reconnectTimer = m_events->newOneShotTimer(delay, NULL);
+    m_events->adoptHandler(Event::kTimer, m_reconnectTimer,
+                            new TMethodEventJob<Client>(this, &Client::handleReconnect));
+    if (m_nextReconnectDelay < 30) {
+        m_nextReconnectDelay *= 2;
+        if (m_nextReconnectDelay > 30) {
+            m_nextReconnectDelay = 30;
+        }
+    }
+}
+
+void
+Client::cancelReconnect()
+{
+    if (m_reconnectTimer != NULL) {
+        m_events->removeHandler(Event::kTimer, m_reconnectTimer);
+        m_events->deleteTimer(m_reconnectTimer);
+        m_reconnectTimer = NULL;
+    }
+}
+
+void
 Client::cleanupConnecting()
 {
     if (m_stream != NULL) {
@@ -615,6 +660,7 @@ Client::handleConnectionFailed(const Event& event, void*)
     cleanupConnecting();
     cleanupStream();
     LOG((CLOG_DEBUG1 "connection failed"));
+    scheduleReconnect();
     sendConnectionFailedEvent(info->m_what.c_str());
     delete info;
 }
@@ -627,6 +673,7 @@ Client::handleConnectTimeout(const Event&, void*)
     cleanupConnection();
     cleanupStream();
     LOG((CLOG_DEBUG1 "connection timed out"));
+    scheduleReconnect();
     sendConnectionFailedEvent("Timed out");
 }
 
@@ -637,6 +684,7 @@ Client::handleOutputError(const Event&, void*)
     cleanupScreen();
     cleanupConnection();
     LOG((CLOG_WARN "error sending to server"));
+    scheduleReconnect();
     sendEvent(m_events->forClient().disconnected(), NULL);
 }
 
@@ -647,6 +695,7 @@ Client::handleDisconnected(const Event&, void*)
     cleanupScreen();
     cleanupConnection();
     LOG((CLOG_DEBUG1 "disconnected"));
+    scheduleReconnect();
     sendEvent(m_events->forClient().disconnected(), NULL);
 }
 
@@ -690,6 +739,7 @@ Client::handleHello(const Event&, void*)
         sendConnectionFailedEvent("Protocol error from server, check encryption settings");
         cleanupTimer();
         cleanupConnection();
+        scheduleReconnect();
         return;
     }
 
@@ -699,6 +749,7 @@ Client::handleHello(const Event&, void*)
         sendConnectionFailedEvent(XIncompatibleClient(major, minor).what());
         cleanupTimer();
         cleanupConnection();
+        scheduleReconnect();
         return;
     }
 
@@ -727,7 +778,7 @@ Client::handleSuspend(const Event&, void*)
 {
     LOG((CLOG_INFO "suspend"));
     m_suspended       = true;
-    bool wasConnected = isConnected();
+    bool wasConnected = isConnected() || isConnecting() || m_reconnectTimer != NULL;
     disconnect(NULL);
     m_connectOnResume = wasConnected;
 }
@@ -767,6 +818,14 @@ void
 Client::handleStopRetry(const Event&, void*)
 {
     m_args.m_restartable = false;
+    cancelReconnect();
+}
+
+void
+Client::handleReconnect(const Event&, void*)
+{
+    cancelReconnect();
+    connect();
 }
 
 void Client::write_to_drop_dir_thread()
