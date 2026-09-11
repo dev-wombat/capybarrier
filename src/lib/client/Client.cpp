@@ -695,8 +695,7 @@ Client::handleHello(const Event&, void*)
 
     // check versions
     LOG((CLOG_DEBUG1 "got hello version %d.%d", major, minor));
-    if (major < kProtocolMajorVersion ||
-        (major == kProtocolMajorVersion && minor < kProtocolMinorVersion)) {
+    if (!Capabilities::isCompatible(major, minor)) {
         sendConnectionFailedEvent(XIncompatibleClient(major, minor).what());
         cleanupTimer();
         cleanupConnection();
@@ -708,6 +707,7 @@ Client::handleHello(const Event&, void*)
     ProtocolUtil::writef(m_stream, kMsgHelloBack,
                             kProtocolMajorVersion,
                             kProtocolMinorVersion, &m_name);
+    ProtocolUtil::writeCapabilities(m_stream, { true, true, true });
 
     // now connected but waiting to complete handshake
     setupScreen();

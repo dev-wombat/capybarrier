@@ -31,9 +31,20 @@
 // 1.4:  adds crypto support
 // 1.5:  adds file transfer and removes home brew crypto
 // 1.6:  adds clipboard streaming
+// 2.0:  requires capability negotiation
 // NOTE: with new version, barrier minor version should increment
-static const SInt16        kProtocolMajorVersion = 1;
-static const SInt16        kProtocolMinorVersion = 6;
+static const SInt16        kProtocolMajorVersion = 2;
+static const SInt16        kProtocolMinorVersion = 0;
+
+struct Capabilities {
+    bool clipboardImageV2;
+    bool transferV2;
+    bool transferResumeV2;
+
+    static bool isCompatible(SInt16 major, SInt16 minor);
+    bool hasRequiredCapabilities() const;
+    bool operator==(const Capabilities& other) const;
+};
 
 // default contact port number
 static const UInt16        kDefaultPort = 24800;
@@ -118,6 +129,10 @@ extern const char*        kMsgHello;
 // protocol minor version number supported by client.  $3 = client
 // name.
 extern const char*        kMsgHelloBack;
+
+// capability negotiation; primary <-> secondary
+// $1 = clipboard image v2, $2 = transfer v2, $3 = transfer resume v2.
+extern const char*        kMsgCapabilities;
 
 
 //

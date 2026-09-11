@@ -50,6 +50,7 @@ ServerProxy::ServerProxy(Client* client, barrier::IStream* stream, IEventQueue* 
     m_dxMouse(0),
     m_dyMouse(0),
     m_ignoreMouse(false),
+    m_capabilitiesReceived(false),
     m_keepAliveAlarm(0.0),
     m_keepAliveAlarmTimer(NULL),
     m_parser(&ServerProxy::parseHandshakeMessage),
@@ -158,7 +159,25 @@ ServerProxy::handleData(const Event&, void*)
 ServerProxy::EResult
 ServerProxy::parseHandshakeMessage(const UInt8* code)
 {
-    if (memcmp(code, kMsgQInfo, 4) == 0) {
+    if (memcmp(code, kMsgCapabilities, 4) == 0) {
+        UInt8 clipboardImageV2;
+        UInt8 transferV2;
+        UInt8 transferResumeV2;
+        if (!ProtocolUtil::readf(m_stream, kMsgCapabilities + 4,
+                                 &clipboardImageV2, &transferV2, &transferResumeV2)) {
+            m_client->disconnect("invalid server capabilities");
+            return kDisconnect;
+        }
+        Capabilities capabilities;
+        capabilities = { clipboardImageV2 != 0, transferV2 != 0, transferResumeV2 != 0 };
+        if (!capabilities.hasRequiredCapabilities()) {
+            m_client->disconnect("server lacks required capabilities");
+            return kDisconnect;
+        }
+        m_capabilitiesReceived = true;
+    }
+
+    else if (memcmp(code, kMsgQInfo, 4) == 0) {
         queryInfo();
     }
 
@@ -167,6 +186,10 @@ ServerProxy::parseHandshakeMessage(const UInt8* code)
     }
 
     else if (memcmp(code, kMsgDSetOptions, 4) == 0) {
+        if (!m_capabilitiesReceived) {
+            m_client->disconnect("server omitted capabilities");
+            return kDisconnect;
+        }
         setOptions();
 
         // handshake is complete

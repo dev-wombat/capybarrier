@@ -43,6 +43,7 @@ ClientProxyUnknown::ClientProxyUnknown(barrier::IStream* stream, double timeout,
     m_stream(stream),
     m_proxy(NULL),
     m_ready(false),
+    m_helloReceived(false),
     m_server(server),
     m_events(events)
 {
@@ -179,74 +180,47 @@ ClientProxyUnknown::removeTimer()
 void
 ClientProxyUnknown::handleData(const Event&, void*)
 {
-    LOG((CLOG_DEBUG1 "parsing hello reply"));
-
-    std::string name("<unknown>");
     try {
-        // limit the maximum length of the hello
-        UInt32 n = m_stream->getSize();
-        if (n > kMaxHelloLength) {
-            LOG((CLOG_DEBUG1 "hello reply too long"));
-            throw XBadClient();
+        if (!m_helloReceived) {
+            LOG((CLOG_DEBUG1 "parsing hello reply"));
+            if (m_stream->getSize() > kMaxHelloLength) {
+                LOG((CLOG_DEBUG1 "hello reply too long"));
+                throw XBadClient();
+            }
+
+            SInt16 major, minor;
+            if (!ProtocolUtil::readf(m_stream, kMsgHelloBack,
+                                     &major, &minor, &m_name)) {
+                throw XBadClient();
+            }
+            if (!Capabilities::isCompatible(major, minor)) {
+                throw XIncompatibleClient(major, minor);
+            }
+            m_helloReceived = true;
+            if (m_stream->isReady()) {
+                m_events->addEvent(Event(m_events->forIStream().inputReady(),
+                                         m_stream->getEventTarget()));
+            }
+            return;
         }
 
-        // parse the reply to hello
-        SInt16 major, minor;
-        if (!ProtocolUtil::readf(m_stream, kMsgHelloBack,
-                                    &major, &minor, &name)) {
+        LOG((CLOG_DEBUG1 "parsing capabilities reply"));
+        Capabilities capabilities;
+        if (!ProtocolUtil::readCapabilities(m_stream, capabilities) ||
+            !capabilities.hasRequiredCapabilities()) {
             throw XBadClient();
         }
-
-        // disallow invalid version numbers
-        if (major <= 0 || minor < 0) {
-            throw XIncompatibleClient(major, minor);
-        }
+        ProtocolUtil::writeCapabilities(m_stream, { true, true, true });
 
         // remove stream event handlers.  the proxy we're about to create
         // may install its own handlers and we don't want to accidentally
         // remove those later.
         removeHandlers();
 
-        // create client proxy for highest version supported by the client
-        if (major == 1) {
-            switch (minor) {
-            case 0:
-                m_proxy = new ClientProxy1_0(name, m_stream, m_events);
-                break;
-
-            case 1:
-                m_proxy = new ClientProxy1_1(name, m_stream, m_events);
-                break;
-
-            case 2:
-                m_proxy = new ClientProxy1_2(name, m_stream, m_events);
-                break;
-
-            case 3:
-                m_proxy = new ClientProxy1_3(name, m_stream, m_events);
-                break;
-
-            case 4:
-                m_proxy = new ClientProxy1_4(name, m_stream, m_server, m_events);
-                break;
-
-            case 5:
-                m_proxy = new ClientProxy1_5(name, m_stream, m_server, m_events);
-                break;
-
-            case 6:
-                m_proxy = new ClientProxy1_6(name, m_stream, m_server, m_events);
-                break;
-            }
-        }
-
-        // hangup (with error) if version isn't supported
-        if (m_proxy == NULL) {
-            throw XIncompatibleClient(major, minor);
-        }
+        m_proxy = new ClientProxy1_6(m_name, m_stream, m_server, m_events);
 
         // the proxy is created and now proxy now owns the stream
-        LOG((CLOG_DEBUG1 "created proxy for client \"%s\" version %d.%d", name.c_str(), major, minor));
+        LOG((CLOG_DEBUG1 "created proxy for client \"%s\"", m_name.c_str()));
         m_stream = NULL;
 
         // wait until the proxy signals that it's ready or has disconnected
@@ -255,19 +229,19 @@ ClientProxyUnknown::handleData(const Event&, void*)
     }
     catch (XIncompatibleClient& e) {
         // client is incompatible
-        LOG((CLOG_WARN "client \"%s\" has incompatible version %d.%d)", name.c_str(), e.getMajor(), e.getMinor()));
+        LOG((CLOG_WARN "client \"%s\" has incompatible version %d.%d)", m_name.c_str(), e.getMajor(), e.getMinor()));
         ProtocolUtil::writef(m_stream,
                             kMsgEIncompatible,
                             kProtocolMajorVersion, kProtocolMinorVersion);
     }
     catch (XBadClient&) {
         // client not behaving
-        LOG((CLOG_WARN "protocol error from client \"%s\"", name.c_str()));
+        LOG((CLOG_WARN "protocol error from client \"%s\"", m_name.c_str()));
         ProtocolUtil::writef(m_stream, kMsgEBad);
     }
     catch (XBase& e) {
         // misc error
-        LOG((CLOG_WARN "error communicating with client \"%s\": %s", name.c_str(), e.what()));
+        LOG((CLOG_WARN "error communicating with client \"%s\": %s", m_name.c_str(), e.what()));
     }
     sendFailure();
 }

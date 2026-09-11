@@ -121,6 +121,7 @@ private:
     SInt32                m_dxMouse, m_dyMouse;
 
     bool                m_ignoreMouse;
+    bool                m_capabilitiesReceived;
 
     KeyModifierID        m_modifierTranslationTable[kKeyModifierIDLast];
 

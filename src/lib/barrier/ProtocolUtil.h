@@ -24,6 +24,7 @@
 #include <stdarg.h>
 
 namespace barrier { class IStream; }
+struct Capabilities;
 
 //! Barrier protocol utilities
 /*!
@@ -71,6 +72,9 @@ public:
     */
     static bool            readf(barrier::IStream*,
                             const char* fmt, ...);
+
+    static bool            writeCapabilities(barrier::IStream*, const Capabilities&);
+    static bool            readCapabilities(barrier::IStream*, Capabilities&);
 
 private:
     static void            vwritef(barrier::IStream*,

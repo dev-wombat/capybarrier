@@ -68,6 +68,35 @@ ProtocolUtil::readf(barrier::IStream* stream, const char* fmt, ...)
     return result;
 }
 
+bool
+ProtocolUtil::writeCapabilities(barrier::IStream* stream, const Capabilities& capabilities)
+{
+    writef(stream, kMsgCapabilities,
+           capabilities.clipboardImageV2,
+           capabilities.transferV2,
+           capabilities.transferResumeV2);
+    return true;
+}
+
+bool
+ProtocolUtil::readCapabilities(barrier::IStream* stream, Capabilities& capabilities)
+{
+    UInt8 clipboardImageV2;
+    UInt8 transferV2;
+    UInt8 transferResumeV2;
+    if (!readf(stream, kMsgCapabilities,
+               &clipboardImageV2, &transferV2, &transferResumeV2)) {
+        return false;
+    }
+
+    capabilities = {
+        clipboardImageV2 != 0,
+        transferV2 != 0,
+        transferResumeV2 != 0
+    };
+    return true;
+}
+
 void
 ProtocolUtil::vwritef(barrier::IStream* stream,
                 const char* fmt, UInt32 size, va_list args)

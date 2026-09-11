@@ -21,6 +21,8 @@
 #include "base/Event.h"
 #include "base/EventTypes.h"
 
+#include <string>
+
 class ClientProxy;
 class EventQueueTimer;
 namespace barrier { class IStream; }
@@ -66,6 +68,8 @@ private:
     EventQueueTimer*    m_timer;
     ClientProxy*        m_proxy;
     bool                m_ready;
+    bool                m_helloReceived;
+    std::string         m_name;
     Server*                m_server;
     IEventQueue*        m_events;
 };

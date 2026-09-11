@@ -20,6 +20,7 @@
 
 const char*                kMsgHello            = "Barrier%2i%2i";
 const char*                kMsgHelloBack        = "Barrier%2i%2i%s";
+const char*                kMsgCapabilities     = "CAPS%1i%1i%1i";
 const char*                kMsgCNoop             = "CNOP";
 const char*                kMsgCClose             = "CBYE";
 const char*                kMsgCEnter             = "CINN%2i%2i%4i%2i";
@@ -51,3 +52,23 @@ const char*                kMsgEIncompatible    = "EICV%2i%2i";
 const char*                kMsgEBusy             = "EBSY";
 const char*                kMsgEUnknown        = "EUNK";
 const char*                kMsgEBad            = "EBAD";
+
+bool
+Capabilities::isCompatible(SInt16 major, SInt16)
+{
+    return major == kProtocolMajorVersion;
+}
+
+bool
+Capabilities::hasRequiredCapabilities() const
+{
+    return clipboardImageV2 && transferV2 && transferResumeV2;
+}
+
+bool
+Capabilities::operator==(const Capabilities& other) const
+{
+    return clipboardImageV2 == other.clipboardImageV2 &&
+           transferV2 == other.transferV2 &&
+           transferResumeV2 == other.transferResumeV2;
+}
