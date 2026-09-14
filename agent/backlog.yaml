@@ -8,12 +8,12 @@ tasks:
     merge_gate: local
   - id: streaming-transfer
     plan_task: 2
-    status: ready
+    status: blocked
     depends_on: [capability-handshake]
     merge_gate: local
   - id: image-clipboard-v2
     plan_task: 3
-    status: pending
+    status: ready
     depends_on: [capability-handshake]
     merge_gate: local-runner-required
     required_evidence: [windows-image-clipboard, macos-image-clipboard]
