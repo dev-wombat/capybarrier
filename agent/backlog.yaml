@@ -19,7 +19,7 @@ tasks:
     required_evidence: [windows-image-clipboard, macos-image-clipboard]
   - id: automatic-reconnect
     plan_task: 4
-    status: pending
+    status: done
     depends_on: [capability-handshake]
     merge_gate: local
   - id: native-file-drop
