@@ -92,6 +92,8 @@ git commit -m "feat: negotiate CapyBarrier capabilities"
 - Produces `TransferSession::accept(const TransferManifest&, const std::string& tempRoot)` and `TransferSession::writeChunk(FileId, UInt64 offset, const void*, size_t)`.
 - Produces `std::vector<ResumeOffset> TransferSession::verifiedOffsets() const` and `bool TransferSession::finalize()`.
 
+**Wire contract:** Use `DTRM`, `DTRA`, `DTRC`, `DTRK`, `DTRF`, and `DTRX` exactly as defined in the design spec. Add the existing `ProtocolUtil` `%8i` network-order integer codec for `UInt64` offsets; keep variable manifest and offset-list fields as existing length-prefixed strings. A chunk is at most 1 MiB. Route v2 messages through the client proxy, server relay, and client server proxy; reject `DFTR`/`DDRG` after the v2 handshake.
+
 - [ ] **Step 1: Write failing validation and resume tests**
 
 ```cpp

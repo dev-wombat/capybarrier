@@ -29,6 +29,21 @@ CapyBarrier는 기존 Barrier의 키보드·마우스 공유를 유지하면서,
 
 수신자가 `TransferAccept(transferId, resumeOffsets)`를 보내면 송신자는 파일별로 정해진 청크 크기의 데이터를 보낸다. 수신자는 디스크에 순차 기록하고 파일별 확인 오프셋을 ACK한다. 재연결 뒤 같은 `transferId`와 매니페스트 해시를 제시하면 수신자가 마지막 검증 오프셋을 반환한다. 파일 SHA-256과 모든 항목 수가 일치할 때만 임시 디렉터리를 네이티브 드롭 공급자에 공개한다. 취소, 해시 불일치, 경로 거부, 저장 공간 부족은 임시 데이터를 정리하고 하나의 실패 상태로 끝낸다.
 
+### 전송 wire contract (v2)
+
+기존 `DFTR`와 `DDRG`는 수신하지 않는다. v2 연결에서는 아래 4-byte 메시지만 사용한다. 숫자는 network byte order이고, 가변 길이 바이트열은 기존 `ProtocolUtil`의 length-prefixed string 형식이다. `UInt64` 오프셋은 새 `%8i` codec으로 보낸다.
+
+| 메시지 | 방향 | 본문 | 의미 |
+| --- | --- | --- | --- |
+| `DTRM` | sender → receiver | `transferId: UInt32`, `manifestHash: 32 bytes`, `manifest: bytes` | 새 전송을 시작하거나 재연결 뒤 재개를 요청한다. manifest는 version, 항목 수, 각 항목의 상대 경로·kind·size·SHA-256을 순서대로 담는다. |
+| `DTRA` | receiver → sender | `transferId`, `manifestHash`, `resumeOffsets: bytes` | 수락 응답이다. offsets는 `(fileIndex: UInt32, durableOffset: UInt64)` 목록이며, 새 전송은 모두 0이다. |
+| `DTRC` | sender → receiver | `transferId`, `fileIndex`, `offset: UInt64`, `payload: bytes` | 최대 1 MiB의 순차 데이터 청크다. |
+| `DTRK` | receiver → sender | `transferId`, `fileIndex`, `durableOffset: UInt64` | 디스크에 성공적으로 기록된 마지막 연속 오프셋이다. |
+| `DTRF` | sender → receiver | `transferId` | 모든 청크를 보냈다는 표시다. 수신자는 모든 파일 hash 검증 뒤에만 native drop에 공개한다. |
+| `DTRX` | 양방향 | `transferId`, `reason: UInt8` | 취소·경로 오류·I/O 오류·hash 불일치다. 수신자는 즉시 임시 디렉터리를 삭제한다. |
+
+`transferId`는 송신자가 활성 연결마다 단조 증가시키는 `UInt32`이며, 동일한 `transferId`의 재개는 같은 `manifestHash`일 때만 허용한다. 수신자는 다른 hash를 받은 동일 ID를 `DTRX`로 거부한다. `DTRM`을 다시 받으면 보존된 durable offsets로 `DTRA`를 재전송한다. ACK되지 않은 바이트는 재접속 후 다시 보낸다. `DTRF` 이전에는 완료·드롭 이벤트를 발생시키지 않는다.
+
 입력 메시지는 전송 ACK 대기 때문에 멈추지 않는다. 청크를 이벤트 큐에 순서대로 등록하고 매 청크 뒤 입력 이벤트가 처리될 기회를 준다.
 
 ### 이미지 클립보드
