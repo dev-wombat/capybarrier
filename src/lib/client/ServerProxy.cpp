@@ -971,14 +971,27 @@ void ServerProxy::transferManifestReceived()
 		TransferManifest::parse(text, manifest);
 	if (accepted) {
 		std::map<std::uint64_t, TransferSession>::iterator previous = m_transferSessions.find(id);
-		if (previous != m_transferSessions.end()) { previous->second.cancel(); m_transferSessions.erase(previous); }
-		const barrier::fs::path root = barrier::fs::temp_directory_path() / "capybarrier-transfers" / std::to_string(id);
-		barrier::fs::remove_all(root);
-		TransferSession session;
-		accepted = session.accept(manifest, root.string());
-		if (accepted) m_transferSessions[id] = session;
+		if (previous != m_transferSessions.end()) {
+			accepted = previous->second.resumes(manifest);
+			if (!accepted) {
+				previous->second.cancel();
+				m_transferSessions.erase(previous);
+			}
+		}
+		else {
+			const barrier::fs::path root = barrier::fs::temp_directory_path() / "capybarrier-transfers" / std::to_string(id);
+			barrier::fs::remove_all(root);
+			TransferSession session;
+			accepted = session.accept(manifest, root.string());
+			if (accepted) m_transferSessions[id] = session;
+		}
 	}
 	transferAcceptSending(id, accepted);
+	if (accepted) {
+		const std::vector<TransferSession::VerifiedOffset>& offsets = m_transferSessions[id].verifiedOffsets();
+		for (std::size_t entry = 0; entry < offsets.size(); ++entry)
+			transferResumeSending(id, static_cast<UInt32>(entry), offsets[entry].offset);
+	}
 }
 void ServerProxy::transferAcceptReceived()
 {

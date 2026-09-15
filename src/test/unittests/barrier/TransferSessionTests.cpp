@@ -158,6 +158,24 @@ TEST(TransferSessionTests, reportsTheLastContiguousChunkOffset)
 	barrier::fs::remove_all(root);
 }
 
+TEST(TransferSessionTests, keepsVerifiedOffsetWhenTheManifestMatches)
+{
+	const barrier::fs::path root = barrier::fs::temp_directory_path() / "capybarrier-transfer-resume";
+	barrier::fs::remove_all(root);
+	TransferManifest manifest;
+	ASSERT_TRUE(TransferManifest::parse(
+		"F 8:note.txt 4 64:88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589\n",
+		manifest));
+
+	TransferSession session;
+	ASSERT_TRUE(session.accept(manifest, root.string()));
+	ASSERT_TRUE(session.writeChunk(0, 0, "ab"));
+	EXPECT_TRUE(session.resumes(manifest));
+	EXPECT_EQ(2u, session.verifiedOffsets()[0].offset);
+
+	barrier::fs::remove_all(root);
+}
+
 TEST(TransferSessionTests, removesPartialFilesWhenTheDigestDoesNotMatch)
 {
 	const barrier::fs::path root = barrier::fs::temp_directory_path() / "capybarrier-transfer-mismatch";

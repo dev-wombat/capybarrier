@@ -24,6 +24,7 @@ public:
 	};
 
 	bool accept(const TransferManifest& manifest, const std::string& root);
+	bool resumes(const TransferManifest& manifest) const;
 	bool writeChunk(std::size_t entry, std::uint64_t offset, const std::string& data);
 	bool finalize();
 	void cancel();

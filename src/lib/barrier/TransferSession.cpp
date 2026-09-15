@@ -91,6 +91,20 @@ TransferSession::accept(const TransferManifest& manifest, const std::string& roo
 }
 
 bool
+TransferSession::resumes(const TransferManifest& manifest) const
+{
+	const std::vector<TransferManifest::Entry>& entries = manifest.entries();
+	if (entries.size() != m_entries.size()) return false;
+	for (std::size_t i = 0; i < entries.size(); ++i) {
+		if (entries[i].isDirectory != m_entries[i].isDirectory ||
+			entries[i].path != m_entries[i].path ||
+			entries[i].size != m_entries[i].size ||
+			entries[i].sha256 != m_entries[i].sha256) return false;
+	}
+	return true;
+}
+
+bool
 TransferSession::writeChunk(std::size_t entry, std::uint64_t offset, const std::string& data)
 {
 	if (entry >= m_entries.size() || m_entries[entry].isDirectory ||
