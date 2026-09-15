@@ -53,6 +53,8 @@ bool NonBlockingStream::try_read_char(char &ch) const
     int result = read(_fd, &ch, 1);
     if (result == 1)
         return true;
+    if (result == 0)
+        return false;
     assert(result == -1 && (errno == EAGAIN || errno == EWOULDBLOCK));
     return false;
 }
