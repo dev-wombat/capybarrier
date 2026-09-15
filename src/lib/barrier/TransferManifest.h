@@ -25,6 +25,8 @@ public:
 
 	static bool isSafeRelativePath(const std::string& path);
 	static bool parse(const std::string& text, TransferManifest& manifest);
+	static bool createForFile(const std::string& path, TransferManifest& manifest);
+	bool serialize(std::string& text) const;
 
 	const std::vector<Entry>& entries() const;
 

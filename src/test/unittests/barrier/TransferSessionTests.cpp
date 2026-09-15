@@ -19,6 +19,7 @@
 #include "test/mock/io/MockStream.h"
 
 #include <cstring>
+#include <fstream>
 #include <vector>
 
 using ::testing::_;
@@ -110,6 +111,33 @@ TEST(TransferManifestTests, parsesLengthPrefixedFileEntries)
 	EXPECT_EQ(4u, manifest.entries()[0].size);
 	EXPECT_EQ("88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589",
 		manifest.entries()[0].sha256);
+}
+
+TEST(TransferManifestTests, createsASingleFileManifestWithDigest)
+{
+	const barrier::fs::path root = barrier::fs::temp_directory_path() / "capybarrier-manifest-file";
+	barrier::fs::remove_all(root);
+	barrier::fs::create_directories(root);
+	const barrier::fs::path file = root / "note.txt";
+	std::ofstream output;
+	barrier::open_utf8_path(output, file, std::ios::out | std::ios::binary);
+	output << "abcd";
+	output.close();
+
+	TransferManifest manifest;
+	ASSERT_TRUE(TransferManifest::createForFile(file.string(), manifest));
+	ASSERT_EQ(1u, manifest.entries().size());
+	EXPECT_EQ("note.txt", manifest.entries()[0].path);
+	EXPECT_EQ(4u, manifest.entries()[0].size);
+	EXPECT_EQ("88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589",
+		manifest.entries()[0].sha256);
+	std::string text;
+	ASSERT_TRUE(manifest.serialize(text));
+	TransferManifest parsed;
+	EXPECT_TRUE(TransferManifest::parse(text, parsed));
+	EXPECT_EQ(manifest.entries()[0].path, parsed.entries()[0].path);
+
+	barrier::fs::remove_all(root);
 }
 
 TEST(TransferSessionTests, reportsTheLastContiguousChunkOffset)

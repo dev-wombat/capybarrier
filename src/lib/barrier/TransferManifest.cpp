@@ -9,7 +9,13 @@
 
 #include "TransferManifest.h"
 
+#include "io/filesystem.h"
+
+#include <openssl/evp.h>
+
+#include <fstream>
 #include <limits>
+#include <sstream>
 
 namespace {
 
@@ -56,6 +62,35 @@ isSha256(const std::string& value)
 			return false;
 		}
 	}
+	return true;
+}
+
+bool
+sha256File(const barrier::fs::path& path, std::string& value)
+{
+	std::ifstream file;
+	barrier::open_utf8_path(file, path, std::ios::in | std::ios::binary);
+	if (!file.is_open()) return false;
+	EVP_MD_CTX* context = EVP_MD_CTX_create();
+	if (context == NULL || EVP_DigestInit_ex(context, EVP_sha256(), NULL) != 1) {
+		if (context != NULL) EVP_MD_CTX_destroy(context);
+		return false;
+	}
+	char buffer[4096];
+	while (file.good()) {
+		file.read(buffer, sizeof(buffer));
+		if (file.gcount() > 0 && EVP_DigestUpdate(context, buffer, static_cast<std::size_t>(file.gcount())) != 1) {
+			EVP_MD_CTX_destroy(context);
+			return false;
+		}
+	}
+	if (file.bad()) { EVP_MD_CTX_destroy(context); return false; }
+	unsigned char digest[EVP_MAX_MD_SIZE]; unsigned int length = 0;
+	if (EVP_DigestFinal_ex(context, digest, &length) != 1) { EVP_MD_CTX_destroy(context); return false; }
+	EVP_MD_CTX_destroy(context);
+	static const char hex[] = "0123456789abcdef";
+	value.clear(); value.reserve(length * 2);
+	for (unsigned int i = 0; i < length; ++i) { value.push_back(hex[digest[i] >> 4]); value.push_back(hex[digest[i] & 0x0f]); }
 	return true;
 }
 
@@ -120,6 +155,37 @@ TransferManifest::parse(const std::string& text, TransferManifest& manifest)
 		return false;
 	}
 	manifest.m_entries.swap(entries);
+	return true;
+}
+
+bool
+TransferManifest::createForFile(const std::string& path, TransferManifest& manifest)
+{
+	const barrier::fs::path file(path);
+	if (!barrier::fs::is_regular_file(file)) return false;
+	Entry entry;
+	entry.isDirectory = false;
+	entry.path = file.filename().string();
+	entry.size = barrier::fs::file_size(file);
+	if (!isSafeRelativePath(entry.path) || !sha256File(file, entry.sha256)) return false;
+	manifest.m_entries.assign(1, entry);
+	return true;
+}
+
+bool
+TransferManifest::serialize(std::string& text) const
+{
+	if (m_entries.empty()) return false;
+	std::ostringstream output;
+	for (std::size_t i = 0; i < m_entries.size(); ++i) {
+		const Entry& entry = m_entries[i];
+		if (!isSafeRelativePath(entry.path) ||
+			(entry.isDirectory && (entry.size != 0 || !entry.sha256.empty())) ||
+			(!entry.isDirectory && !isSha256(entry.sha256))) return false;
+		output << (entry.isDirectory ? 'D' : 'F') << ' ' << entry.path.size() << ':' << entry.path
+			<< ' ' << entry.size << ' ' << entry.sha256.size() << ':' << entry.sha256 << '\n';
+	}
+	text = output.str();
 	return true;
 }
 
