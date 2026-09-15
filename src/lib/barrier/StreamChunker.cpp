@@ -32,12 +32,25 @@
 #include "base/String.h"
 
 #include <fstream>
+#include <chrono>
+#include <condition_variable>
+#include <map>
+#include <mutex>
 #include <stdexcept>
 
 using namespace std;
 
 static const size_t g_chunkSize = 32 * 1024; //32kb
 static std::uint64_t g_nextTransferId = 1;
+namespace {
+struct TransferAcceptance {
+	bool ready;
+	bool accepted;
+};
+std::mutex g_transferMutex;
+std::condition_variable g_transferCondition;
+std::map<std::uint64_t, TransferAcceptance> g_transferAcceptances;
+}
 
 bool StreamChunker::s_isChunkingFile = false;
 bool StreamChunker::s_interruptFile = false;
@@ -122,9 +135,17 @@ StreamChunker::sendTransferFile(const char* filename, IEventQueue* events, void*
 	std::ifstream file(filename, std::ios::in | std::ios::binary);
 	if (!file.is_open()) throw runtime_error("failed to open file");
 	const std::uint64_t id = g_nextTransferId++;
+	beginTransfer(id);
 	Event manifestEvent(events->forFile().fileChunkSending(), eventTarget);
 	manifestEvent.setDataObject(new TransferEvent(TransferEvent::kManifest, id, 0, 0, manifestText, true));
 	events->addEvent(manifestEvent);
+	if (!waitForTransferAcceptance(id)) {
+		Event finishedEvent(events->forFile().fileChunkSending(), eventTarget);
+		finishedEvent.setDataObject(new TransferEvent(TransferEvent::kFinished, id, 0, 0, "", false));
+		events->addEvent(finishedEvent);
+		finishTransfer(id);
+		return;
+	}
 
 	std::uint64_t offset = 0;
 	char buffer[g_chunkSize];
@@ -138,10 +159,51 @@ StreamChunker::sendTransferFile(const char* filename, IEventQueue* events, void*
 		events->addEvent(chunkEvent);
 		offset += count;
 	}
-	if (file.bad()) throw runtime_error("failed reading file");
+	if (file.bad()) {
+		finishTransfer(id);
+		throw runtime_error("failed reading file");
+	}
 	Event finishedEvent(events->forFile().fileChunkSending(), eventTarget);
 	finishedEvent.setDataObject(new TransferEvent(TransferEvent::kFinished, id, 0, offset, "", true));
 	events->addEvent(finishedEvent);
+	finishTransfer(id);
+}
+
+void
+StreamChunker::beginTransfer(std::uint64_t id)
+{
+	std::lock_guard<std::mutex> lock(g_transferMutex);
+	g_transferAcceptances[id] = TransferAcceptance{false, false};
+}
+
+void
+StreamChunker::acceptTransfer(std::uint64_t id, bool accepted)
+{
+	std::lock_guard<std::mutex> lock(g_transferMutex);
+	std::map<std::uint64_t, TransferAcceptance>::iterator transfer = g_transferAcceptances.find(id);
+	if (transfer == g_transferAcceptances.end()) return;
+	transfer->second.ready = true;
+	transfer->second.accepted = accepted;
+	g_transferCondition.notify_all();
+}
+
+bool
+StreamChunker::waitForTransferAcceptance(std::uint64_t id)
+{
+	std::unique_lock<std::mutex> lock(g_transferMutex);
+	std::map<std::uint64_t, TransferAcceptance>::iterator transfer = g_transferAcceptances.find(id);
+	if (transfer == g_transferAcceptances.end()) return false;
+	if (!g_transferCondition.wait_for(lock, std::chrono::seconds(30), [id]() {
+		return g_transferAcceptances[id].ready;
+	})) return false;
+	return g_transferAcceptances[id].accepted;
+}
+
+void
+StreamChunker::finishTransfer(std::uint64_t id)
+{
+	std::lock_guard<std::mutex> lock(g_transferMutex);
+	g_transferAcceptances.erase(id);
 }
 
 void

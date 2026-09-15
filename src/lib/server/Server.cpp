@@ -2106,7 +2106,10 @@ Server::transferAcceptReceived(BaseClientProxy* source, std::uint64_t id, bool a
 	std::map<std::uint64_t, TransferRouteKey>::iterator receiver = m_transferReceiverRoutes.find(id);
 	if (receiver == m_transferReceiverRoutes.end()) return;
 	std::map<TransferRouteKey, TransferRoute>::iterator route = m_transferRoutes.find(receiver->second);
-	if (route != m_transferRoutes.end() && route->second.receiver == source)
+	if (route == m_transferRoutes.end() || route->second.receiver != source) return;
+	if (route->second.sender == m_primaryClient)
+		StreamChunker::acceptTransfer(route->second.senderId, accepted);
+	else
 		route->second.sender->transferAcceptSending(route->second.senderId, accepted);
 }
 
