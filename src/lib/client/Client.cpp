@@ -883,7 +883,7 @@ Client::sendFileToServer(const char* filename)
 void Client::send_file_thread(const char* filename)
 {
     try {
-        StreamChunker::sendTransferFile(filename, m_events, this);
+        StreamChunker::sendFile(filename, m_events, this);
     }
     catch (std::runtime_error& error) {
         LOG((CLOG_ERR "failed sending file chunks: %s", error.what()));
