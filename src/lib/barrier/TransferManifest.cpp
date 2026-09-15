@@ -64,7 +64,7 @@ isSha256(const std::string& value)
 bool
 TransferManifest::isSafeRelativePath(const std::string& path)
 {
-	if (path.empty() || path[0] == '/' || path[0] == '\\') {
+	if (path.empty() || path[0] == '/' || path.find('\\') != std::string::npos) {
 		return false;
 	}
 

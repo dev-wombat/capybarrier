@@ -91,6 +91,7 @@ TEST(TransferProtocolTests, roundTripsChunkIdentityOffsetAndPayload)
 TEST(TransferManifestTests, rejectsPathsOutsideTheTransferRoot)
 {
 	EXPECT_FALSE(TransferManifest::isSafeRelativePath("../secret"));
+	EXPECT_FALSE(TransferManifest::isSafeRelativePath("..\\secret"));
 	EXPECT_FALSE(TransferManifest::isSafeRelativePath("/etc/passwd"));
 	EXPECT_FALSE(TransferManifest::isSafeRelativePath("folder//file"));
 	EXPECT_FALSE(TransferManifest::isSafeRelativePath(""));
