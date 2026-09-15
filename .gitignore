@@ -33,5 +33,6 @@ CMakeCache.txt
 /deps/
 /out/build/x64-Debug
 /build-agent
+/.worktrees
 /agent/state.json
 /agent/logs/
