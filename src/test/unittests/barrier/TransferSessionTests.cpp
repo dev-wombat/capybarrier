@@ -176,6 +176,26 @@ TEST(TransferSessionTests, keepsVerifiedOffsetWhenTheManifestMatches)
 	barrier::fs::remove_all(root);
 }
 
+TEST(TransferSessionTests, rejectsResumeWhenTheManifestDiffers)
+{
+	const barrier::fs::path root = barrier::fs::temp_directory_path() / "capybarrier-transfer-resume-mismatch";
+	barrier::fs::remove_all(root);
+	TransferManifest expected;
+	TransferManifest changed;
+	ASSERT_TRUE(TransferManifest::parse(
+		"F 8:note.txt 4 64:88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589\n",
+		expected));
+	ASSERT_TRUE(TransferManifest::parse(
+		"F 8:note.txt 4 64:0000000000000000000000000000000000000000000000000000000000000000\n",
+		changed));
+
+	TransferSession session;
+	ASSERT_TRUE(session.accept(expected, root.string()));
+	EXPECT_FALSE(session.resumes(changed));
+
+	barrier::fs::remove_all(root);
+}
+
 TEST(TransferSessionTests, removesPartialFilesWhenTheDigestDoesNotMatch)
 {
 	const barrier::fs::path root = barrier::fs::temp_directory_path() / "capybarrier-transfer-mismatch";
