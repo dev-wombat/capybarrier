@@ -147,6 +147,12 @@ public:
 
     //! Received dragging information from client
     void dragInfoReceived(UInt32 fileNum, std::string content);
+    void transferManifestReceived(BaseClientProxy* source, std::uint64_t transferId, const std::string& manifest);
+    void transferAcceptReceived(BaseClientProxy* source, std::uint64_t transferId, bool accepted);
+    void transferChunkReceived(BaseClientProxy* source, std::uint64_t transferId, UInt32 entry, std::uint64_t offset, const std::string& data);
+    void transferResumeReceived(BaseClientProxy* source, std::uint64_t transferId, UInt32 entry, std::uint64_t offset);
+    void transferFinishedReceived(BaseClientProxy* source, std::uint64_t transferId, bool success);
+    void transferCancelReceived(BaseClientProxy* source, std::uint64_t transferId);
 
     //! Store ClientListener pointer
     void                setListener(ClientListener* p) { m_clientListener = p; }
@@ -473,6 +479,8 @@ private:
     Thread*                m_sendFileThread;
     Thread*                m_writeToDropDirThread;
     std::string m_dragFileExt;
+    std::map<std::uint64_t, BaseClientProxy*> m_transferSenders;
+    std::map<std::uint64_t, BaseClientProxy*> m_transferReceivers;
     bool                m_ignoreFileTransfer;
     bool                m_enableClipboard;
 

@@ -31,9 +31,24 @@ public:
 
     virtual void        setClipboard(ClipboardID id, const IClipboard* clipboard);
     virtual bool        recvClipboard();
+    virtual void        transferManifestSending(std::uint64_t transferId, const std::string& manifest);
+    virtual void        transferAcceptSending(std::uint64_t transferId, bool accepted);
+    virtual void        transferChunkSending(std::uint64_t transferId, UInt32 entry,
+                            std::uint64_t offset, const std::string& data);
+    virtual void        transferResumeSending(std::uint64_t transferId, UInt32 entry,
+                            std::uint64_t offset);
+    virtual void        transferFinishedSending(std::uint64_t transferId, bool success);
+    virtual void        transferCancelSending(std::uint64_t transferId);
+    virtual bool        parseMessage(const UInt8* code);
 
 private:
     void                handleClipboardSendingEvent(const Event&, void*);
+    void                transferManifestReceived();
+    void                transferAcceptReceived();
+    void                transferChunkReceived();
+    void                transferResumeReceived();
+    void                transferFinishedReceived();
+    void                transferCancelReceived();
 
 private:
     IEventQueue*        m_events;

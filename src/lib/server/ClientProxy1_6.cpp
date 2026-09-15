@@ -21,6 +21,7 @@
 #include "barrier/ProtocolUtil.h"
 #include "barrier/StreamChunker.h"
 #include "barrier/ClipboardChunk.h"
+#include "barrier/protocol_types.h"
 #include "io/IStream.h"
 #include "base/TMethodEventJob.h"
 #include "base/Log.h"
@@ -98,4 +99,73 @@ ClientProxy1_6::recvClipboard()
     }
 
     return true;
+}
+
+bool
+ClientProxy1_6::parseMessage(const UInt8* code)
+{
+	if (memcmp(code, kMsgDTransferManifest, 4) == 0) { transferManifestReceived(); }
+	else if (memcmp(code, kMsgDTransferAccept, 4) == 0) { transferAcceptReceived(); }
+	else if (memcmp(code, kMsgDTransferChunk, 4) == 0) { transferChunkReceived(); }
+	else if (memcmp(code, kMsgDTransferResume, 4) == 0) { transferResumeReceived(); }
+	else if (memcmp(code, kMsgDTransferFinished, 4) == 0) { transferFinishedReceived(); }
+	else if (memcmp(code, kMsgDTransferCancel, 4) == 0) { transferCancelReceived(); }
+	else { return ClientProxy1_5::parseMessage(code); }
+	return true;
+}
+
+void ClientProxy1_6::transferManifestSending(std::uint64_t id, const std::string& manifest)
+{
+	ProtocolUtil::writef(getStream(), kMsgDTransferManifest, id, &manifest);
+}
+void ClientProxy1_6::transferAcceptSending(std::uint64_t id, bool accepted)
+{
+	ProtocolUtil::writef(getStream(), kMsgDTransferAccept, id, accepted ? 1 : 0);
+}
+void ClientProxy1_6::transferChunkSending(std::uint64_t id, UInt32 entry, std::uint64_t offset, const std::string& data)
+{
+	ProtocolUtil::writef(getStream(), kMsgDTransferChunk, id, entry, offset, &data);
+}
+void ClientProxy1_6::transferResumeSending(std::uint64_t id, UInt32 entry, std::uint64_t offset)
+{
+	ProtocolUtil::writef(getStream(), kMsgDTransferResume, id, entry, offset);
+}
+void ClientProxy1_6::transferFinishedSending(std::uint64_t id, bool success)
+{
+	ProtocolUtil::writef(getStream(), kMsgDTransferFinished, id, success ? 1 : 0);
+}
+void ClientProxy1_6::transferCancelSending(std::uint64_t id)
+{
+	ProtocolUtil::writef(getStream(), kMsgDTransferCancel, id);
+}
+
+void ClientProxy1_6::transferManifestReceived()
+{
+	std::uint64_t id; std::string manifest;
+	if (ProtocolUtil::readf(getStream(), kMsgDTransferManifest + 4, &id, &manifest)) m_server->transferManifestReceived(this, id, manifest);
+}
+void ClientProxy1_6::transferAcceptReceived()
+{
+	std::uint64_t id; UInt8 accepted;
+	if (ProtocolUtil::readf(getStream(), kMsgDTransferAccept + 4, &id, &accepted)) m_server->transferAcceptReceived(this, id, accepted != 0);
+}
+void ClientProxy1_6::transferChunkReceived()
+{
+	std::uint64_t id, offset; UInt32 entry; std::string data;
+	if (ProtocolUtil::readf(getStream(), kMsgDTransferChunk + 4, &id, &entry, &offset, &data)) m_server->transferChunkReceived(this, id, entry, offset, data);
+}
+void ClientProxy1_6::transferResumeReceived()
+{
+	std::uint64_t id, offset; UInt32 entry;
+	if (ProtocolUtil::readf(getStream(), kMsgDTransferResume + 4, &id, &entry, &offset)) m_server->transferResumeReceived(this, id, entry, offset);
+}
+void ClientProxy1_6::transferFinishedReceived()
+{
+	std::uint64_t id; UInt8 success;
+	if (ProtocolUtil::readf(getStream(), kMsgDTransferFinished + 4, &id, &success)) m_server->transferFinishedReceived(this, id, success != 0);
+}
+void ClientProxy1_6::transferCancelReceived()
+{
+	std::uint64_t id;
+	if (ProtocolUtil::readf(getStream(), kMsgDTransferCancel + 4, &id)) m_server->transferCancelReceived(this, id);
 }

@@ -35,6 +35,13 @@ BaseClientProxy::~BaseClientProxy()
     // do nothing
 }
 
+void BaseClientProxy::transferManifestSending(std::uint64_t, const std::string&) { }
+void BaseClientProxy::transferAcceptSending(std::uint64_t, bool) { }
+void BaseClientProxy::transferChunkSending(std::uint64_t, UInt32, std::uint64_t, const std::string&) { }
+void BaseClientProxy::transferResumeSending(std::uint64_t, UInt32, std::uint64_t) { }
+void BaseClientProxy::transferFinishedSending(std::uint64_t, bool) { }
+void BaseClientProxy::transferCancelSending(std::uint64_t) { }
+
 void
 BaseClientProxy::setJumpCursorPos(SInt32 x, SInt32 y)
 {

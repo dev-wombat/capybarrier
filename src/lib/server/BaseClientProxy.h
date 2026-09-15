@@ -20,6 +20,8 @@
 
 #include "barrier/IClient.h"
 
+#include <cstdint>
+
 namespace barrier { class IStream; }
 
 //! Generic proxy for client or primary
@@ -88,6 +90,14 @@ public:
     virtual void        sendDragInfo(UInt32 fileCount, const char* info,
                             size_t size) = 0;
     virtual void        fileChunkSending(UInt8 mark, char* data, size_t dataSize) = 0;
+    virtual void        transferManifestSending(std::uint64_t transferId, const std::string& manifest);
+    virtual void        transferAcceptSending(std::uint64_t transferId, bool accepted);
+    virtual void        transferChunkSending(std::uint64_t transferId, UInt32 entry,
+                            std::uint64_t offset, const std::string& data);
+    virtual void        transferResumeSending(std::uint64_t transferId, UInt32 entry,
+                            std::uint64_t offset);
+    virtual void        transferFinishedSending(std::uint64_t transferId, bool success);
+    virtual void        transferCancelSending(std::uint64_t transferId);
     virtual std::string getName() const;
     virtual barrier::IStream*
                         getStream() const = 0;

@@ -26,6 +26,7 @@ public:
 	bool accept(const TransferManifest& manifest, const std::string& root);
 	bool writeChunk(std::size_t entry, std::uint64_t offset, const std::string& data);
 	bool finalize();
+	void cancel();
 
 	const std::vector<VerifiedOffset>& verifiedOffsets() const;
 

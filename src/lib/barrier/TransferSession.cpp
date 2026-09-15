@@ -139,6 +139,12 @@ TransferSession::finalize()
 	return true;
 }
 
+void
+TransferSession::cancel()
+{
+	barrier::fs::remove_all(m_root);
+}
+
 const std::vector<TransferSession::VerifiedOffset>&
 TransferSession::verifiedOffsets() const
 {

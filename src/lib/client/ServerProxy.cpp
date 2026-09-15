@@ -20,6 +20,7 @@
 
 #include "client/Client.h"
 #include "barrier/FileChunk.h"
+#include "barrier/TransferManifest.h"
 #include "barrier/ClipboardChunk.h"
 #include "barrier/StreamChunker.h"
 #include "barrier/Clipboard.h"
@@ -28,6 +29,7 @@
 #include "barrier/protocol_types.h"
 #include "barrier/XBarrier.h"
 #include "io/IStream.h"
+#include "io/filesystem.h"
 #include "base/Log.h"
 #include "base/IEventQueue.h"
 #include "base/TMethodEventJob.h"
@@ -335,6 +337,12 @@ ServerProxy::parseMessage(const UInt8* code)
     else if (memcmp(code, kMsgDFileTransfer, 4) == 0) {
         fileChunkReceived();
     }
+    else if (memcmp(code, kMsgDTransferManifest, 4) == 0) { transferManifestReceived(); }
+    else if (memcmp(code, kMsgDTransferAccept, 4) == 0) { transferAcceptReceived(); }
+    else if (memcmp(code, kMsgDTransferChunk, 4) == 0) { transferChunkReceived(); }
+    else if (memcmp(code, kMsgDTransferResume, 4) == 0) { transferResumeReceived(); }
+    else if (memcmp(code, kMsgDTransferFinished, 4) == 0) { transferFinishedReceived(); }
+    else if (memcmp(code, kMsgDTransferCancel, 4) == 0) { transferCancelReceived(); }
     else if (memcmp(code, kMsgDDragInfo, 4) == 0) {
         dragInfoReceived();
     }
@@ -933,6 +941,83 @@ void
 ServerProxy::fileChunkSending(UInt8 mark, char* data, size_t dataSize)
 {
     FileChunk::send(m_stream, mark, data, dataSize);
+}
+
+void ServerProxy::transferManifestSending(std::uint64_t id, const std::string& manifest)
+{
+	ProtocolUtil::writef(m_stream, kMsgDTransferManifest, id, &manifest);
+}
+void ServerProxy::transferChunkSending(std::uint64_t id, UInt32 entry, std::uint64_t offset, const std::string& data)
+{
+	ProtocolUtil::writef(m_stream, kMsgDTransferChunk, id, entry, offset, &data);
+}
+void ServerProxy::transferAcceptSending(std::uint64_t id, bool accepted)
+{
+	ProtocolUtil::writef(m_stream, kMsgDTransferAccept, id, accepted ? 1 : 0);
+}
+void ServerProxy::transferResumeSending(std::uint64_t id, UInt32 entry, std::uint64_t offset)
+{
+	ProtocolUtil::writef(m_stream, kMsgDTransferResume, id, entry, offset);
+}
+void ServerProxy::transferFinishedSending(std::uint64_t id, bool success)
+{
+	ProtocolUtil::writef(m_stream, kMsgDTransferFinished, id, success ? 1 : 0);
+}
+
+void ServerProxy::transferManifestReceived()
+{
+	std::uint64_t id; std::string text; TransferManifest manifest;
+	bool accepted = ProtocolUtil::readf(m_stream, kMsgDTransferManifest + 4, &id, &text) &&
+		TransferManifest::parse(text, manifest);
+	if (accepted) {
+		std::map<std::uint64_t, TransferSession>::iterator previous = m_transferSessions.find(id);
+		if (previous != m_transferSessions.end()) { previous->second.cancel(); m_transferSessions.erase(previous); }
+		const barrier::fs::path root = barrier::fs::temp_directory_path() / "capybarrier-transfers" / std::to_string(id);
+		barrier::fs::remove_all(root);
+		TransferSession session;
+		accepted = session.accept(manifest, root.string());
+		if (accepted) m_transferSessions[id] = session;
+	}
+	transferAcceptSending(id, accepted);
+}
+void ServerProxy::transferAcceptReceived()
+{
+	std::uint64_t id; UInt8 accepted;
+	ProtocolUtil::readf(m_stream, kMsgDTransferAccept + 4, &id, &accepted);
+}
+void ServerProxy::transferChunkReceived()
+{
+	std::uint64_t id, offset; UInt32 entry; std::string data;
+	if (!ProtocolUtil::readf(m_stream, kMsgDTransferChunk + 4, &id, &entry, &offset, &data)) return;
+	std::map<std::uint64_t, TransferSession>::iterator it = m_transferSessions.find(id);
+	if (it == m_transferSessions.end() || !it->second.writeChunk(entry, offset, data)) {
+		transferFinishedSending(id, false);
+		return;
+	}
+	transferResumeSending(id, entry, it->second.verifiedOffsets()[entry].offset);
+}
+void ServerProxy::transferResumeReceived()
+{
+	std::uint64_t id, offset; UInt32 entry;
+	ProtocolUtil::readf(m_stream, kMsgDTransferResume + 4, &id, &entry, &offset);
+}
+void ServerProxy::transferFinishedReceived()
+{
+	std::uint64_t id; UInt8 success;
+	if (!ProtocolUtil::readf(m_stream, kMsgDTransferFinished + 4, &id, &success)) return;
+	std::map<std::uint64_t, TransferSession>::iterator it = m_transferSessions.find(id);
+	if (it == m_transferSessions.end()) return;
+	const bool result = success != 0 && it->second.finalize();
+	transferFinishedSending(id, result);
+	if (!result) it->second.cancel();
+	m_transferSessions.erase(it);
+}
+void ServerProxy::transferCancelReceived()
+{
+	std::uint64_t id;
+	if (!ProtocolUtil::readf(m_stream, kMsgDTransferCancel + 4, &id)) return;
+	std::map<std::uint64_t, TransferSession>::iterator it = m_transferSessions.find(id);
+	if (it != m_transferSessions.end()) { it->second.cancel(); m_transferSessions.erase(it); }
 }
 
 void

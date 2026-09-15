@@ -20,8 +20,12 @@
 
 #include "barrier/clipboard_types.h"
 #include "barrier/key_types.h"
+#include "barrier/TransferSession.h"
 #include "base/Event.h"
 #include "base/Stopwatch.h"
+
+#include <cstdint>
+#include <map>
 
 class Client;
 class ClientInfo;
@@ -55,6 +59,9 @@ public:
 
     // sending file chunk to server
     void                fileChunkSending(UInt8 mark, char* data, size_t dataSize);
+    void                transferManifestSending(std::uint64_t transferId, const std::string& manifest);
+    void                transferChunkSending(std::uint64_t transferId, UInt32 entry,
+                            std::uint64_t offset, const std::string& data);
 
     // sending dragging information to server
     void                sendDragInfo(UInt32 fileCount, const char* info, size_t size);
@@ -105,6 +112,15 @@ private:
     void                infoAcknowledgment();
     void                fileChunkReceived();
     void                dragInfoReceived();
+    void                transferManifestReceived();
+    void                transferAcceptReceived();
+    void                transferChunkReceived();
+    void                transferResumeReceived();
+    void                transferFinishedReceived();
+    void                transferCancelReceived();
+    void                transferAcceptSending(std::uint64_t transferId, bool accepted);
+    void                transferResumeSending(std::uint64_t transferId, UInt32 entry, std::uint64_t offset);
+    void                transferFinishedSending(std::uint64_t transferId, bool success);
     void                handleClipboardSendingEvent(const Event&, void*);
 
 private:
@@ -130,4 +146,5 @@ private:
 
     MessageParser        m_parser;
     IEventQueue*        m_events;
+    std::map<std::uint64_t, TransferSession> m_transferSessions;
 };

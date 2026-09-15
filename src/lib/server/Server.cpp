@@ -2078,6 +2078,71 @@ Server::onFileChunkSending(const void* data)
 }
 
 void
+Server::transferManifestReceived(BaseClientProxy* source, std::uint64_t id, const std::string& manifest)
+{
+	if (source == NULL || m_active == NULL || source == m_active) return;
+	m_transferSenders[id] = source;
+	m_transferReceivers[id] = m_active;
+	m_active->transferManifestSending(id, manifest);
+}
+
+void
+Server::transferAcceptReceived(BaseClientProxy* source, std::uint64_t id, bool accepted)
+{
+	std::map<std::uint64_t, BaseClientProxy*>::iterator sender = m_transferSenders.find(id);
+	std::map<std::uint64_t, BaseClientProxy*>::iterator receiver = m_transferReceivers.find(id);
+	if (sender != m_transferSenders.end() && receiver != m_transferReceivers.end() && receiver->second == source)
+		sender->second->transferAcceptSending(id, accepted);
+}
+
+void
+Server::transferChunkReceived(BaseClientProxy* source, std::uint64_t id, UInt32 entry, std::uint64_t offset, const std::string& data)
+{
+	std::map<std::uint64_t, BaseClientProxy*>::iterator sender = m_transferSenders.find(id);
+	std::map<std::uint64_t, BaseClientProxy*>::iterator receiver = m_transferReceivers.find(id);
+	if (sender != m_transferSenders.end() && receiver != m_transferReceivers.end() && sender->second == source)
+		receiver->second->transferChunkSending(id, entry, offset, data);
+}
+
+void
+Server::transferResumeReceived(BaseClientProxy* source, std::uint64_t id, UInt32 entry, std::uint64_t offset)
+{
+	std::map<std::uint64_t, BaseClientProxy*>::iterator sender = m_transferSenders.find(id);
+	std::map<std::uint64_t, BaseClientProxy*>::iterator receiver = m_transferReceivers.find(id);
+	if (sender != m_transferSenders.end() && receiver != m_transferReceivers.end() && receiver->second == source)
+		sender->second->transferResumeSending(id, entry, offset);
+}
+
+void
+Server::transferFinishedReceived(BaseClientProxy* source, std::uint64_t id, bool success)
+{
+	std::map<std::uint64_t, BaseClientProxy*>::iterator sender = m_transferSenders.find(id);
+	std::map<std::uint64_t, BaseClientProxy*>::iterator receiver = m_transferReceivers.find(id);
+	if (sender == m_transferSenders.end() || receiver == m_transferReceivers.end()) return;
+	if (sender->second == source) {
+		receiver->second->transferFinishedSending(id, success);
+	}
+	else if (receiver->second == source) {
+		sender->second->transferFinishedSending(id, success);
+		m_transferSenders.erase(sender);
+		m_transferReceivers.erase(receiver);
+	}
+}
+
+void
+Server::transferCancelReceived(BaseClientProxy* source, std::uint64_t id)
+{
+	std::map<std::uint64_t, BaseClientProxy*>::iterator sender = m_transferSenders.find(id);
+	std::map<std::uint64_t, BaseClientProxy*>::iterator receiver = m_transferReceivers.find(id);
+	if (sender == m_transferSenders.end() || receiver == m_transferReceivers.end()) return;
+	if (sender->second == source) receiver->second->transferCancelSending(id);
+	else if (receiver->second == source) sender->second->transferCancelSending(id);
+	else return;
+	m_transferSenders.erase(sender);
+	m_transferReceivers.erase(receiver);
+}
+
+void
 Server::onFileRecieveCompleted()
 {
 	if (isReceivedFileSizeValid()) {
