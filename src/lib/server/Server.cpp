@@ -2218,6 +2218,19 @@ Server::removeClient(BaseClientProxy* client)
 		return false;
 	}
 
+	for (std::map<std::uint64_t, BaseClientProxy*>::iterator transfer = m_transferSenders.begin();
+		 transfer != m_transferSenders.end();) {
+		std::map<std::uint64_t, BaseClientProxy*>::iterator receiver = m_transferReceivers.find(transfer->first);
+		if (transfer->second == client ||
+			(receiver != m_transferReceivers.end() && receiver->second == client)) {
+			if (receiver != m_transferReceivers.end()) m_transferReceivers.erase(receiver);
+			m_transferSenders.erase(transfer++);
+		}
+		else {
+			++transfer;
+		}
+	}
+
 	// remove event handlers
 	m_events->removeHandler(m_events->forIScreen().shapeChanged(),
 							client->getEventTarget());
