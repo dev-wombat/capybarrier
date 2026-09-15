@@ -479,8 +479,16 @@ private:
     Thread*                m_sendFileThread;
     Thread*                m_writeToDropDirThread;
     std::string m_dragFileExt;
-    std::map<std::uint64_t, BaseClientProxy*> m_transferSenders;
-    std::map<std::uint64_t, BaseClientProxy*> m_transferReceivers;
+    typedef std::pair<BaseClientProxy*, std::uint64_t> TransferRouteKey;
+    struct TransferRoute {
+        BaseClientProxy* sender;
+        BaseClientProxy* receiver;
+        std::uint64_t senderId;
+        std::uint64_t receiverId;
+    };
+    std::map<TransferRouteKey, TransferRoute> m_transferRoutes;
+    std::map<std::uint64_t, TransferRouteKey> m_transferReceiverRoutes;
+    std::uint64_t m_nextTransferReceiverId;
     bool                m_ignoreFileTransfer;
     bool                m_enableClipboard;
 
