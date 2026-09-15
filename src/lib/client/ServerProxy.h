@@ -62,6 +62,7 @@ public:
     void                transferManifestSending(std::uint64_t transferId, const std::string& manifest);
     void                transferChunkSending(std::uint64_t transferId, UInt32 entry,
                             std::uint64_t offset, const std::string& data);
+    void                transferFinishedSending(std::uint64_t transferId, bool success);
 
     // sending dragging information to server
     void                sendDragInfo(UInt32 fileCount, const char* info, size_t size);
@@ -120,7 +121,6 @@ private:
     void                transferCancelReceived();
     void                transferAcceptSending(std::uint64_t transferId, bool accepted);
     void                transferResumeSending(std::uint64_t transferId, UInt32 entry, std::uint64_t offset);
-    void                transferFinishedSending(std::uint64_t transferId, bool success);
     void                handleClipboardSendingEvent(const Event&, void*);
 
 private:

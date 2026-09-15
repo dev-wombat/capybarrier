@@ -20,6 +20,7 @@
 #include "mt/Lock.h"
 #include "mt/Mutex.h"
 #include "barrier/FileChunk.h"
+#include "barrier/TransferManifest.h"
 #include "barrier/ClipboardChunk.h"
 #include "barrier/protocol_types.h"
 #include "base/EventTypes.h"
@@ -36,6 +37,7 @@
 using namespace std;
 
 static const size_t g_chunkSize = 32 * 1024; //32kb
+static std::uint64_t g_nextTransferId = 1;
 
 bool StreamChunker::s_isChunkingFile = false;
 bool StreamChunker::s_interruptFile = false;
@@ -107,6 +109,39 @@ StreamChunker::sendFile(const char* filename,
     file.close();
 
     s_isChunkingFile = false;
+}
+
+void
+StreamChunker::sendTransferFile(const char* filename, IEventQueue* events, void* eventTarget)
+{
+	TransferManifest manifest;
+	std::string manifestText;
+	if (!TransferManifest::createForFile(filename, manifest) || !manifest.serialize(manifestText)) {
+		throw runtime_error("failed to create transfer manifest");
+	}
+	std::ifstream file(filename, std::ios::in | std::ios::binary);
+	if (!file.is_open()) throw runtime_error("failed to open file");
+	const std::uint64_t id = g_nextTransferId++;
+	Event manifestEvent(events->forFile().fileChunkSending(), eventTarget);
+	manifestEvent.setDataObject(new TransferEvent(TransferEvent::kManifest, id, 0, 0, manifestText, true));
+	events->addEvent(manifestEvent);
+
+	std::uint64_t offset = 0;
+	char buffer[g_chunkSize];
+	while (file.good()) {
+		file.read(buffer, sizeof(buffer));
+		const std::streamsize count = file.gcount();
+		if (count <= 0) break;
+		Event chunkEvent(events->forFile().fileChunkSending(), eventTarget);
+		chunkEvent.setDataObject(new TransferEvent(TransferEvent::kChunk, id, 0, offset,
+			std::string(buffer, static_cast<std::size_t>(count)), true));
+		events->addEvent(chunkEvent);
+		offset += count;
+	}
+	if (file.bad()) throw runtime_error("failed reading file");
+	Event finishedEvent(events->forFile().fileChunkSending(), eventTarget);
+	finishedEvent.setDataObject(new TransferEvent(TransferEvent::kFinished, id, 0, offset, "", true));
+	events->addEvent(finishedEvent);
 }
 
 void

@@ -1524,6 +1524,16 @@ Server::handleFakeInputEndEvent(const Event&, void*)
 void
 Server::handleFileChunkSendingEvent(const Event& event, void*)
 {
+	StreamChunker::TransferEvent* transfer = static_cast<StreamChunker::TransferEvent*>(event.getDataObject());
+	if (transfer != NULL) {
+		if (transfer->m_type == StreamChunker::TransferEvent::kManifest)
+			transferManifestReceived(m_primaryClient, transfer->m_id, transfer->m_data);
+		else if (transfer->m_type == StreamChunker::TransferEvent::kChunk)
+			transferChunkReceived(m_primaryClient, transfer->m_id, transfer->m_entry, transfer->m_offset, transfer->m_data);
+		else
+			transferFinishedReceived(m_primaryClient, transfer->m_id, transfer->m_success);
+		return;
+	}
 	onFileChunkSending(event.getData());
 }
 
@@ -2457,7 +2467,7 @@ void Server::send_file_thread(const char* filename)
 {
 	try {
 		LOG((CLOG_DEBUG "sending file to client, filename=%s", filename));
-		StreamChunker::sendFile(filename, m_events, this);
+        StreamChunker::sendTransferFile(filename, m_events, this);
 	}
 	catch (std::runtime_error &error) {
 		LOG((CLOG_ERR "failed sending file chunks, error: %s", error.what()));
