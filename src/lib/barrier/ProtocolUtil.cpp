@@ -25,6 +25,7 @@
 #include "base/String.h"
 
 #include <cctype>
+#include <cstdint>
 #include <cstring>
 
 //
@@ -141,10 +142,10 @@ ProtocolUtil::vreadf(barrier::IStream* stream, const char* fmt, va_list args)
             switch (*fmt) {
             case 'i': {
                 // check for valid length
-                assert(len == 1 || len == 2 || len == 4);
+                assert(len == 1 || len == 2 || len == 4 || len == 8);
 
                 // read the data
-                UInt8 buffer[4];
+                UInt8 buffer[8];
                 read(stream, buffer, len);
 
                 // convert it
@@ -173,6 +174,19 @@ ProtocolUtil::vreadf(barrier::IStream* stream, const char* fmt, va_list args)
                         (static_cast<UInt32>(buffer[2]) <<  8) |
                          static_cast<UInt32>(buffer[3]);
                     LOG((CLOG_DEBUG2 "readf: read %d byte integer: %d (0x%x)", len, *static_cast<UInt32*>(v), *static_cast<UInt32*>(v)));
+                    break;
+
+                case 8:
+                    *static_cast<std::uint64_t*>(v) =
+                        (static_cast<std::uint64_t>(buffer[0]) << 56) |
+                        (static_cast<std::uint64_t>(buffer[1]) << 48) |
+                        (static_cast<std::uint64_t>(buffer[2]) << 40) |
+                        (static_cast<std::uint64_t>(buffer[3]) << 32) |
+                        (static_cast<std::uint64_t>(buffer[4]) << 24) |
+                        (static_cast<std::uint64_t>(buffer[5]) << 16) |
+                        (static_cast<std::uint64_t>(buffer[6]) <<  8) |
+                         static_cast<std::uint64_t>(buffer[7]);
+                    LOG((CLOG_DEBUG2 "readf: read %d byte integer", len));
                     break;
                 }
                 break;
@@ -322,8 +336,13 @@ ProtocolUtil::getLength(const char* fmt, va_list args)
             UInt32 len = eatLength(&fmt);
             switch (*fmt) {
             case 'i':
-                assert(len == 1 || len == 2 || len == 4);
-                (void)va_arg(args, UInt32);
+                assert(len == 1 || len == 2 || len == 4 || len == 8);
+                if (len == 8) {
+                    (void)va_arg(args, std::uint64_t);
+                }
+                else {
+                    (void)va_arg(args, UInt32);
+                }
                 break;
 
             case 'I':
@@ -389,7 +408,7 @@ ProtocolUtil::writef_void(void* buffer, const char* fmt, va_list args)
             UInt32 len = eatLength(&fmt);
             switch (*fmt) {
             case 'i': {
-                const UInt32 v = va_arg(args, UInt32);
+                const std::uint64_t v = len == 8 ? va_arg(args, std::uint64_t) : va_arg(args, UInt32);
                 switch (len) {
                 case 1:
                     // 1 byte integer
@@ -404,6 +423,17 @@ ProtocolUtil::writef_void(void* buffer, const char* fmt, va_list args)
 
                 case 4:
                     // 4 byte integer
+                    *dst++ = static_cast<UInt8>((v >> 24) & 0xff);
+                    *dst++ = static_cast<UInt8>((v >> 16) & 0xff);
+                    *dst++ = static_cast<UInt8>((v >>  8) & 0xff);
+                    *dst++ = static_cast<UInt8>( v        & 0xff);
+                    break;
+
+                case 8:
+                    *dst++ = static_cast<UInt8>((v >> 56) & 0xff);
+                    *dst++ = static_cast<UInt8>((v >> 48) & 0xff);
+                    *dst++ = static_cast<UInt8>((v >> 40) & 0xff);
+                    *dst++ = static_cast<UInt8>((v >> 32) & 0xff);
                     *dst++ = static_cast<UInt8>((v >> 24) & 0xff);
                     *dst++ = static_cast<UInt8>((v >> 16) & 0xff);
                     *dst++ = static_cast<UInt8>((v >>  8) & 0xff);

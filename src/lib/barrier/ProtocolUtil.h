@@ -45,6 +45,7 @@ public:
     - \%1i  -- converts integer argument to 1 byte integer
     - \%2i  -- converts integer argument to 2 byte integer in NBO
     - \%4i  -- converts integer argument to 4 byte integer in NBO
+    - \%8i  -- converts integer argument to 8 byte integer in NBO
     - \%1I  -- converts std::vector<UInt8>* to 1 byte integers
     - \%2I  -- converts std::vector<UInt16>* to 2 byte integers in NBO
     - \%4I  -- converts std::vector<UInt32>* to 4 byte integers in NBO
@@ -65,6 +66,7 @@ public:
     - \%1i  -- reads a 1 byte integer; argument is a SInt32* or UInt32*
     - \%2i  -- reads an NBO 2 byte integer;  arg is SInt32* or UInt32*
     - \%4i  -- reads an NBO 4 byte integer;  arg is SInt32* or UInt32*
+    - \%8i  -- reads an NBO 8 byte integer;  arg is a UInt64*
     - \%1I  -- reads 1 byte integers;  arg is std::vector<UInt8>*
     - \%2I  -- reads NBO 2 byte integers;  arg is std::vector<UInt16>*
     - \%4I  -- reads NBO 4 byte integers;  arg is std::vector<UInt32>*

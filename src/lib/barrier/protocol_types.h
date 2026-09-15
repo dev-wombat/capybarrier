@@ -290,6 +290,30 @@ extern const char*        kMsgDSetOptions;
 // 2 means the file transfer is finished.
 extern const char*        kMsgDFileTransfer;
 
+// transfer v2 manifest: primary <-> secondary
+// $1 = transfer id, $2 = length-prefixed manifest text.
+extern const char*        kMsgDTransferManifest;
+
+// transfer v2 accepted/rejected: primary <-> secondary
+// $1 = transfer id, $2 = accepted.
+extern const char*        kMsgDTransferAccept;
+
+// transfer v2 chunk: primary <-> secondary
+// $1 = transfer id, $2 = manifest entry index, $3 = byte offset, $4 = data.
+extern const char*        kMsgDTransferChunk;
+
+// transfer v2 resume point: primary <-> secondary
+// $1 = transfer id, $2 = manifest entry index, $3 = verified byte offset.
+extern const char*        kMsgDTransferResume;
+
+// transfer v2 final result: primary <-> secondary
+// $1 = transfer id, $2 = success.
+extern const char*        kMsgDTransferFinished;
+
+// transfer v2 cancellation: primary <-> secondary
+// $1 = transfer id.
+extern const char*        kMsgDTransferCancel;
+
 // drag information:  primary <-> secondary
 // transfer drag information. The first 2 bytes are used for storing
 // the number of dragging objects. Then the following string consists
