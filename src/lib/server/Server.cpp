@@ -2128,7 +2128,10 @@ Server::transferResumeReceived(BaseClientProxy* source, std::uint64_t id, UInt32
 	if (receiver == m_transferReceiverRoutes.end()) return;
 	std::map<TransferRouteKey, TransferRoute>::iterator route = m_transferRoutes.find(receiver->second);
 	if (route != m_transferRoutes.end() && route->second.receiver == source)
-		route->second.sender->transferResumeSending(route->second.senderId, entry, offset);
+		if (route->second.sender == m_primaryClient)
+			StreamChunker::resumeTransfer(route->second.senderId, entry, offset);
+		else
+			route->second.sender->transferResumeSending(route->second.senderId, entry, offset);
 }
 
 void

@@ -21,3 +21,13 @@ TEST(StreamChunkerTests, doesNotSendChunksWhenTransferIsRejected)
     EXPECT_FALSE(StreamChunker::waitForTransferAcceptance(43));
     StreamChunker::finishTransfer(43);
 }
+
+TEST(StreamChunkerTests, resumesFromTheReceiverVerifiedOffset)
+{
+    StreamChunker::beginTransfer(44);
+    StreamChunker::acceptTransfer(44, true);
+    StreamChunker::resumeTransfer(44, 0, 1024);
+    EXPECT_TRUE(StreamChunker::waitForTransferAcceptance(44));
+    EXPECT_EQ(1024u, StreamChunker::transferOffset(44));
+    StreamChunker::finishTransfer(44);
+}

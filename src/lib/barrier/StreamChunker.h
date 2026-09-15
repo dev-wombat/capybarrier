@@ -46,7 +46,9 @@ public:
     static void sendTransferFile(const char* filename, IEventQueue* events, void* eventTarget);
     static void beginTransfer(std::uint64_t id);
     static void acceptTransfer(std::uint64_t id, bool accepted);
+    static void resumeTransfer(std::uint64_t id, UInt32 entry, std::uint64_t offset);
     static bool waitForTransferAcceptance(std::uint64_t id);
+    static std::uint64_t transferOffset(std::uint64_t id);
     static void finishTransfer(std::uint64_t id);
     static void            sendClipboard(
                             String& data,

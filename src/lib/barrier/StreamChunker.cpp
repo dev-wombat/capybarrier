@@ -46,6 +46,7 @@ namespace {
 struct TransferAcceptance {
 	bool ready;
 	bool accepted;
+	std::uint64_t offset;
 };
 std::mutex g_transferMutex;
 std::condition_variable g_transferCondition;
@@ -147,7 +148,8 @@ StreamChunker::sendTransferFile(const char* filename, IEventQueue* events, void*
 		return;
 	}
 
-	std::uint64_t offset = 0;
+	std::uint64_t offset = transferOffset(id);
+	file.seekg(static_cast<std::streamoff>(offset));
 	char buffer[g_chunkSize];
 	while (file.good()) {
 		file.read(buffer, sizeof(buffer));
@@ -173,7 +175,7 @@ void
 StreamChunker::beginTransfer(std::uint64_t id)
 {
 	std::lock_guard<std::mutex> lock(g_transferMutex);
-	g_transferAcceptances[id] = TransferAcceptance{false, false};
+	g_transferAcceptances[id] = TransferAcceptance{false, false, 0};
 }
 
 void
@@ -187,6 +189,18 @@ StreamChunker::acceptTransfer(std::uint64_t id, bool accepted)
 	g_transferCondition.notify_all();
 }
 
+void
+StreamChunker::resumeTransfer(std::uint64_t id, UInt32 entry, std::uint64_t offset)
+{
+	if (entry != 0) return;
+	std::lock_guard<std::mutex> lock(g_transferMutex);
+	std::map<std::uint64_t, TransferAcceptance>::iterator transfer = g_transferAcceptances.find(id);
+	if (transfer == g_transferAcceptances.end() || !transfer->second.accepted) return;
+	transfer->second.offset = offset;
+	transfer->second.ready = true;
+	g_transferCondition.notify_all();
+}
+
 bool
 StreamChunker::waitForTransferAcceptance(std::uint64_t id)
 {
@@ -197,6 +211,14 @@ StreamChunker::waitForTransferAcceptance(std::uint64_t id)
 		return g_transferAcceptances[id].ready;
 	})) return false;
 	return g_transferAcceptances[id].accepted;
+}
+
+std::uint64_t
+StreamChunker::transferOffset(std::uint64_t id)
+{
+	std::lock_guard<std::mutex> lock(g_transferMutex);
+	std::map<std::uint64_t, TransferAcceptance>::iterator transfer = g_transferAcceptances.find(id);
+	return transfer == g_transferAcceptances.end() ? 0 : transfer->second.offset;
 }
 
 void
