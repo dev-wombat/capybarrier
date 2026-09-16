@@ -153,6 +153,22 @@ TransferSession::finalize()
 	return true;
 }
 
+bool
+TransferSession::copyTo(const std::string& destination) const
+{
+	if (destination.empty()) return false;
+	const barrier::fs::path target(destination);
+	barrier::fs::create_directories(target);
+	for (std::size_t i = 0; i < m_entries.size(); ++i) {
+		if (m_entries[i].isDirectory) continue;
+		const barrier::fs::path source = barrier::fs::path(m_root) / m_entries[i].path;
+		const barrier::fs::path output = target / m_entries[i].path;
+		barrier::fs::create_directories(output.parent_path());
+		barrier::fs::copy_file(source, output, barrier::fs::copy_options::overwrite_existing);
+	}
+	return true;
+}
+
 void
 TransferSession::cancel()
 {

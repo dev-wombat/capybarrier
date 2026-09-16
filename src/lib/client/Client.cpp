@@ -213,6 +213,12 @@ Client::isConnected() const
     return (m_server != NULL);
 }
 
+String
+Client::dropTarget() const
+{
+    return m_screen->getDropTarget();
+}
+
 bool
 Client::isConnecting() const
 {

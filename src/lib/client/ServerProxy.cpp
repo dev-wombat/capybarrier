@@ -1020,7 +1020,9 @@ void ServerProxy::transferFinishedReceived()
 	if (!ProtocolUtil::readf(m_stream, kMsgDTransferFinished + 4, &id, &success)) return;
 	std::map<std::uint64_t, TransferSession>::iterator it = m_transferSessions.find(id);
 	if (it == m_transferSessions.end()) return;
-	const bool result = success != 0 && it->second.finalize();
+	bool result = success != 0 && it->second.finalize();
+	if (result && !m_client->dropTarget().empty())
+		result = it->second.copyTo(m_client->dropTarget());
 	transferFinishedSending(id, result);
 	if (!result) it->second.cancel();
 	m_transferSessions.erase(it);

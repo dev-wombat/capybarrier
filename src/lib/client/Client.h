@@ -111,6 +111,8 @@ public:
     */
     bool                isConnected() const;
 
+    String              dropTarget() const;
+
     //! Test if connecting
     /*!
     Returns true iff the client is currently attempting to connect to
