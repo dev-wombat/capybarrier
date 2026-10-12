@@ -298,6 +298,42 @@ protected:
 	TransferSession session;
 };
 
+TEST_F(TransferDeliveryTests, missingPartialFileCannotResumeOrAdvanceItsOffset)
+{
+	TransferSession session;
+	ASSERT_TRUE(session.accept(manifest, source.string()));
+	ASSERT_TRUE(session.writeChunk(0, 0, "ab"));
+	ASSERT_TRUE(barrier::fs::remove(source / "note.txt"));
+	EXPECT_FALSE(session.resumes(manifest));
+	EXPECT_FALSE(session.writeChunk(0, 2, "cd"));
+	EXPECT_EQ(2u, session.verifiedOffsets()[0].offset);
+	EXPECT_FALSE(barrier::fs::exists(source / "note.txt"));
+}
+
+TEST_F(TransferDeliveryTests, truncatedPartialFileCannotResumeOrAdvanceItsOffset)
+{
+	TransferSession session;
+	ASSERT_TRUE(session.accept(manifest, source.string()));
+	ASSERT_TRUE(session.writeChunk(0, 0, "ab"));
+	barrier::fs::resize_file(source / "note.txt", 1);
+	EXPECT_FALSE(session.resumes(manifest));
+	EXPECT_FALSE(session.writeChunk(0, 2, "cd"));
+	EXPECT_EQ(2u, session.verifiedOffsets()[0].offset);
+	EXPECT_EQ("a", read(source / "note.txt"));
+}
+
+TEST_F(TransferDeliveryTests, extendedPartialFileCannotResumeOrAdvanceItsOffset)
+{
+	TransferSession session;
+	ASSERT_TRUE(session.accept(manifest, source.string()));
+	ASSERT_TRUE(session.writeChunk(0, 0, "ab"));
+	barrier::fs::resize_file(source / "note.txt", 3);
+	EXPECT_FALSE(session.resumes(manifest));
+	EXPECT_FALSE(session.writeChunk(0, 2, "cd"));
+	EXPECT_EQ(2u, session.verifiedOffsets()[0].offset);
+	EXPECT_EQ(3u, barrier::fs::file_size(source / "note.txt"));
+}
+
 TEST_F(TransferDeliveryTests, doesNotExposeFileBeforeHashVerification)
 {
 	ASSERT_TRUE(session.accept(manifest, source.string()));

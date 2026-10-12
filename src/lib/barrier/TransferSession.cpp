@@ -110,8 +110,17 @@ TransferSession::resumes(const TransferManifest& manifest) const
 			entries[i].path != m_entries[i].path ||
 			entries[i].size != m_entries[i].size ||
 			entries[i].sha256 != m_entries[i].sha256) return false;
+		if (!entries[i].isDirectory && !hasVerifiedFile(i)) return false;
 	}
 	return true;
+}
+
+bool
+TransferSession::hasVerifiedFile(std::size_t entry) const
+{
+	std::error_code error;
+	const auto size = barrier::fs::file_size(barrier::fs::path(m_root) / m_entries[entry].path, error);
+	return !error && size == m_offsets[entry].offset;
 }
 
 bool
@@ -123,16 +132,11 @@ TransferSession::writeChunk(std::size_t entry, std::uint64_t offset, const std::
 		offset != m_offsets[entry].offset || data.size() > m_entries[entry].size - offset) {
 		return false;
 	}
+	if (!hasVerifiedFile(entry)) return false;
 
 	const barrier::fs::path path = barrier::fs::path(m_root) / m_entries[entry].path;
 	std::fstream file;
 	barrier::open_utf8_path(file, path, std::ios::in | std::ios::out | std::ios::binary);
-	if (!file.is_open()) {
-		std::ofstream create;
-		barrier::open_utf8_path(create, path, std::ios::out | std::ios::binary);
-		create.close();
-		barrier::open_utf8_path(file, path, std::ios::in | std::ios::out | std::ios::binary);
-	}
 	if (!file.is_open()) {
 		return false;
 	}

@@ -33,6 +33,8 @@ public:
 	const std::vector<VerifiedOffset>& verifiedOffsets() const;
 
 private:
+	bool hasVerifiedFile(std::size_t entry) const;
+
 	std::string m_root;
 	std::vector<TransferManifest::Entry> m_entries;
 	std::vector<VerifiedOffset> m_offsets;
