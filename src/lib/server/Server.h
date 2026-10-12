@@ -485,6 +485,7 @@ private:
         BaseClientProxy* receiver;
         std::uint64_t senderId;
         std::uint64_t receiverId;
+        std::string receiverName;
     };
     std::map<TransferRouteKey, TransferRoute> m_transferRoutes;
     std::map<std::uint64_t, TransferRouteKey> m_transferReceiverRoutes;

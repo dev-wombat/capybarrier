@@ -2094,6 +2094,11 @@ Server::transferManifestReceived(BaseClientProxy* source, std::uint64_t id, cons
 	TransferRouteKey key(source, id);
 	auto previous = m_transferRoutes.find(key);
 	if (previous != m_transferRoutes.end()) {
+		if (previous->second.receiver == NULL) {
+			auto receiver = m_clients.find(previous->second.receiverName);
+			if (receiver == m_clients.end()) return;
+			previous->second.receiver = receiver->second;
+		}
 		previous->second.receiver->transferManifestSending(previous->second.receiverId, manifest);
 		return;
 	}
@@ -2105,7 +2110,7 @@ Server::transferManifestReceived(BaseClientProxy* source, std::uint64_t id, cons
 	do {
 		receiverId = ids(nonce);
 	} while (m_transferReceiverRoutes.count(receiverId) != 0);
-	TransferRoute route = {source, m_active, id, receiverId};
+	TransferRoute route = {source, m_active, id, receiverId, getName(m_active)};
 	m_transferRoutes[key] = route;
 	m_transferReceiverRoutes[route.receiverId] = key;
 	m_active->transferManifestSending(route.receiverId, manifest);
@@ -2128,7 +2133,7 @@ void
 Server::transferChunkReceived(BaseClientProxy* source, std::uint64_t id, UInt32 entry, std::uint64_t offset, const std::string& data)
 {
 	std::map<TransferRouteKey, TransferRoute>::iterator route = m_transferRoutes.find(TransferRouteKey(source, id));
-	if (route != m_transferRoutes.end())
+	if (route != m_transferRoutes.end() && route->second.receiver != NULL)
 		route->second.receiver->transferChunkSending(route->second.receiverId, entry, offset, data);
 }
 
@@ -2150,7 +2155,13 @@ Server::transferFinishedReceived(BaseClientProxy* source, std::uint64_t id, bool
 {
 	std::map<TransferRouteKey, TransferRoute>::iterator sender = m_transferRoutes.find(TransferRouteKey(source, id));
 	if (sender != m_transferRoutes.end()) {
-		sender->second.receiver->transferFinishedSending(sender->second.receiverId, success);
+		if (sender->second.receiver != NULL) {
+			sender->second.receiver->transferFinishedSending(sender->second.receiverId, success);
+		}
+		else {
+			m_transferReceiverRoutes.erase(sender->second.receiverId);
+			m_transferRoutes.erase(sender);
+		}
 		return;
 	}
 	std::map<std::uint64_t, TransferRouteKey>::iterator receiver = m_transferReceiverRoutes.find(id);
@@ -2171,7 +2182,8 @@ Server::transferCancelReceived(BaseClientProxy* source, std::uint64_t id)
 {
 	std::map<TransferRouteKey, TransferRoute>::iterator sender = m_transferRoutes.find(TransferRouteKey(source, id));
 	if (sender != m_transferRoutes.end()) {
-		sender->second.receiver->transferCancelSending(sender->second.receiverId);
+		if (sender->second.receiver != NULL)
+			sender->second.receiver->transferCancelSending(sender->second.receiverId);
 		m_transferReceiverRoutes.erase(sender->second.receiverId);
 		m_transferRoutes.erase(sender);
 		return;
@@ -2256,11 +2268,12 @@ Server::removeClient(BaseClientProxy* client)
 
 	for (std::map<TransferRouteKey, TransferRoute>::iterator transfer = m_transferRoutes.begin();
 		 transfer != m_transferRoutes.end();) {
-		if (transfer->second.sender == client || transfer->second.receiver == client) {
+		if (transfer->second.sender == client) {
 			m_transferReceiverRoutes.erase(transfer->second.receiverId);
 			m_transferRoutes.erase(transfer++);
 		}
 		else {
+			if (transfer->second.receiver == client) transfer->second.receiver = NULL;
 			++transfer;
 		}
 	}

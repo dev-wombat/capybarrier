@@ -20,6 +20,7 @@ set(sources
     arch/ArchInternetTests.cpp
     ipc/IpcTests.cpp
     net/NetworkTests.cpp
+    net/TransferRoutingTests.cpp
     Main.cpp
 )
 
