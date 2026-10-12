@@ -8,6 +8,7 @@
 #include "barrier/ProtocolUtil.h"
 #include "barrier/protocol_types.h"
 #include "net/TCPSocketFactory.h"
+#include "io/filesystem.h"
 #include "test/global/TestEventQueue.h"
 #include "test/global/gtest.h"
 #include "test/mock/barrier/MockScreen.h"
@@ -15,6 +16,8 @@
 
 #include <algorithm>
 #include <cstring>
+#include <memory>
+#include <set>
 
 namespace {
 
@@ -50,7 +53,7 @@ protected:
     ServerProxyTransferTests() :
         client(&events, "receiver", NetworkAddress("127.0.0.1", 24800),
                new TCPSocketFactory(&events, nullptr), &screen, args),
-        proxy(&client, &stream, &events) { }
+        proxy(new ReceivingProxy(&client, &stream, &events)) { }
 
     void TearDown() override
     {
@@ -62,7 +65,7 @@ protected:
     void receive(const std::string& packet)
     {
         stream.input = packet.substr(4);
-        proxy.parseMessage(reinterpret_cast<const UInt8*>(packet.data()));
+        proxy->parseMessage(reinterpret_cast<const UInt8*>(packet.data()));
         if (!stream.output.empty() && stream.output.back() == "CNOP") stream.output.pop_back();
     }
 
@@ -108,7 +111,7 @@ protected:
     testing::NiceMock<MockScreen> screen;
     Client client;
     WireStream stream;
-    ReceivingProxy proxy;
+    std::unique_ptr<ReceivingProxy> proxy;
 };
 
 TEST_F(ServerProxyTransferTests, repeatsManifestWithVerifiedWireOffset)
@@ -167,6 +170,79 @@ TEST_F(ServerProxyTransferTests, unsafeManifestDiscardsThePartialSession)
     stream.output.clear();
     manifest();
     expectAcceptance(0);
+}
+
+TEST_F(ServerProxyTransferTests, replacementConnectionRetainsVerifiedReceiverOffset)
+{
+    manifest();
+    expectAcceptance(0);
+    chunk(0, "ab");
+    stream.output.clear();
+    proxy.reset();
+    proxy.reset(new ReceivingProxy(&client, &stream, &events));
+    manifest();
+    expectAcceptance(2);
+    chunk(2, "cd");
+    stream.output.clear();
+    manifest();
+    expectAcceptance(4);
+}
+
+TEST_F(ServerProxyTransferTests, replacementConnectionRejectsChangedManifest)
+{
+    manifest();
+    expectAcceptance(0);
+    chunk(0, "ab");
+    stream.output.clear();
+    proxy.reset();
+    proxy.reset(new ReceivingProxy(&client, &stream, &events));
+    WireStream packet;
+    const std::string changed =
+        "F 8:note.txt 4 64:0000000000000000000000000000000000000000000000000000000000000000\n";
+    ProtocolUtil::writef(&packet, kMsgDTransferManifest, id, &changed);
+    receive(packet.output[0]);
+    ASSERT_EQ(1u, stream.output.size());
+    WireStream response;
+    response.input = stream.output[0];
+    std::uint64_t responseId = 0;
+    UInt8 accepted = 1;
+    ASSERT_TRUE(ProtocolUtil::readf(&response, kMsgDTransferAccept, &responseId, &accepted));
+    EXPECT_EQ(id, responseId);
+    EXPECT_EQ(0u, accepted);
+    stream.output.clear();
+    manifest();
+    expectAcceptance(0);
+}
+
+TEST(ServerProxyLifetimeTests, destroyingReceiverRemovesItsOwnedStagingDirectories)
+{
+    const std::string prefix = "capybarrier-transfer-9751-";
+    const auto temp = barrier::fs::temp_directory_path();
+    std::set<std::string> before;
+    for (const auto& entry : barrier::fs::directory_iterator(temp)) {
+        if (entry.path().filename().string().find(prefix) == 0) before.insert(entry.path().string());
+    }
+    std::vector<barrier::fs::path> created;
+    {
+        TestEventQueue events;
+        testing::NiceMock<MockScreen> screen;
+        ClientArgs args;
+        Client client(&events, "receiver", NetworkAddress("127.0.0.1", 24800),
+                      new TCPSocketFactory(&events, nullptr), &screen, args);
+        WireStream stream, packet;
+        ReceivingProxy proxy(&client, &stream, &events);
+        const std::string manifest = "D 6:folder 0 0:\n";
+        ProtocolUtil::writef(&packet, kMsgDTransferManifest, std::uint64_t(9751), &manifest);
+        stream.input = packet.output[0].substr(4);
+        proxy.parseMessage(reinterpret_cast<const UInt8*>("DTRM"));
+        for (const auto& entry : barrier::fs::directory_iterator(temp)) {
+            if (entry.path().filename().string().find(prefix) == 0 &&
+                before.count(entry.path().string()) == 0) created.push_back(entry.path());
+        }
+        ASSERT_EQ(1u, created.size());
+        EXPECT_TRUE(barrier::fs::exists(created[0] / "folder"));
+    }
+    EXPECT_FALSE(barrier::fs::exists(created[0]));
 }
 
 } // namespace

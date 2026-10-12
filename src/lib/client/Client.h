@@ -24,9 +24,12 @@
 #include "barrier/DragInformation.h"
 #include "barrier/INode.h"
 #include "barrier/ClientArgs.h"
+#include "barrier/TransferSession.h"
 #include "net/NetworkAddress.h"
 #include "base/EventTypes.h"
 #include "mt/CondVar.h"
+
+#include <map>
 
 class EventQueueTimer;
 namespace barrier { class Screen; }
@@ -210,6 +213,8 @@ public:
     bool                m_mock;
 
 private:
+    friend class ServerProxy;
+
     std::string                m_name;
     NetworkAddress        m_serverAddress;
     ISocketFactory*        m_socketFactory;
@@ -238,4 +243,5 @@ private:
     ClientArgs            m_args;
     bool                m_enableClipboard;
     UInt32              m_nextReconnectDelay;
+    std::map<std::uint64_t, TransferSession> m_transferSessions;
 };

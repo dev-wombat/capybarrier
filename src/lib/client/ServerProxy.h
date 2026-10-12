@@ -20,12 +20,11 @@
 
 #include "barrier/clipboard_types.h"
 #include "barrier/key_types.h"
-#include "barrier/TransferSession.h"
 #include "base/Event.h"
 #include "base/Stopwatch.h"
 
 #include <cstdint>
-#include <map>
+#include <string>
 
 class Client;
 class ClientInfo;
@@ -146,5 +145,4 @@ private:
 
     MessageParser        m_parser;
     IEventQueue*        m_events;
-    std::map<std::uint64_t, TransferSession> m_transferSessions;
 };

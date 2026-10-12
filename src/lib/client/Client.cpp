@@ -115,6 +115,7 @@ Client::~Client()
     cleanupScreen();
     cleanupConnecting();
     cleanupConnection();
+    for (auto& transfer : m_transferSessions) transfer.second.cancel();
     delete m_socketFactory;
 }
 

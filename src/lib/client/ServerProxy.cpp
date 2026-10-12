@@ -967,23 +967,24 @@ void ServerProxy::transferFinishedSending(std::uint64_t id, bool success)
 
 void ServerProxy::transferManifestReceived()
 {
+	auto& sessions = m_client->m_transferSessions;
 	std::uint64_t id; std::string text; TransferManifest manifest;
 	if (!ProtocolUtil::readf(m_stream, kMsgDTransferManifest + 4, &id, &text)) return;
 	bool accepted = TransferManifest::parse(text, manifest);
 	if (!accepted) {
-		auto previous = m_transferSessions.find(id);
-		if (previous != m_transferSessions.end()) {
+		auto previous = sessions.find(id);
+		if (previous != sessions.end()) {
 			previous->second.cancel();
-			m_transferSessions.erase(previous);
+			sessions.erase(previous);
 		}
 	}
 	if (accepted) {
-		std::map<std::uint64_t, TransferSession>::iterator previous = m_transferSessions.find(id);
-		if (previous != m_transferSessions.end()) {
+		std::map<std::uint64_t, TransferSession>::iterator previous = sessions.find(id);
+		if (previous != sessions.end()) {
 			accepted = previous->second.resumes(manifest);
 			if (!accepted) {
 				previous->second.cancel();
-				m_transferSessions.erase(previous);
+				sessions.erase(previous);
 			}
 		}
 		else {
@@ -994,14 +995,14 @@ void ServerProxy::transferManifestReceived()
 					 std::to_string(nonce()) + "-" + std::to_string(nonce()));
 				TransferSession session;
 				accepted = session.accept(manifest, root.string());
-				if (accepted) m_transferSessions[id] = session;
+				if (accepted) sessions[id] = session;
 			}
 			catch (const std::exception&) { accepted = false; }
 		}
 	}
 	transferAcceptSending(id, accepted);
 	if (accepted) {
-		const std::vector<TransferSession::VerifiedOffset>& offsets = m_transferSessions[id].verifiedOffsets();
+		const std::vector<TransferSession::VerifiedOffset>& offsets = sessions[id].verifiedOffsets();
 		for (std::size_t entry = 0; entry < offsets.size(); ++entry)
 			transferResumeSending(id, static_cast<UInt32>(entry), offsets[entry].offset);
 	}
@@ -1013,11 +1014,12 @@ void ServerProxy::transferAcceptReceived()
 }
 void ServerProxy::transferChunkReceived()
 {
+	auto& sessions = m_client->m_transferSessions;
 	std::uint64_t id, offset; UInt32 entry; std::string data;
 	if (!ProtocolUtil::readf(m_stream, kMsgDTransferChunk + 4, &id, &entry, &offset, &data)) return;
-	std::map<std::uint64_t, TransferSession>::iterator it = m_transferSessions.find(id);
-	if (it == m_transferSessions.end() || !it->second.writeChunk(entry, offset, data)) {
-		if (it != m_transferSessions.end()) { it->second.cancel(); m_transferSessions.erase(it); }
+	std::map<std::uint64_t, TransferSession>::iterator it = sessions.find(id);
+	if (it == sessions.end() || !it->second.writeChunk(entry, offset, data)) {
+		if (it != sessions.end()) { it->second.cancel(); sessions.erase(it); }
 		transferFinishedSending(id, false);
 		return;
 	}
@@ -1030,21 +1032,23 @@ void ServerProxy::transferResumeReceived()
 }
 void ServerProxy::transferFinishedReceived()
 {
+	auto& sessions = m_client->m_transferSessions;
 	std::uint64_t id; UInt8 success;
 	if (!ProtocolUtil::readf(m_stream, kMsgDTransferFinished + 4, &id, &success)) return;
-	std::map<std::uint64_t, TransferSession>::iterator it = m_transferSessions.find(id);
-	if (it == m_transferSessions.end()) return;
+	std::map<std::uint64_t, TransferSession>::iterator it = sessions.find(id);
+	if (it == sessions.end()) return;
 	bool result = success != 0 && it->second.finalize() && it->second.copyTo(m_client->dropTarget());
 	transferFinishedSending(id, result);
 	it->second.cancel();
-	m_transferSessions.erase(it);
+	sessions.erase(it);
 }
 void ServerProxy::transferCancelReceived()
 {
+	auto& sessions = m_client->m_transferSessions;
 	std::uint64_t id;
 	if (!ProtocolUtil::readf(m_stream, kMsgDTransferCancel + 4, &id)) return;
-	std::map<std::uint64_t, TransferSession>::iterator it = m_transferSessions.find(id);
-	if (it != m_transferSessions.end()) { it->second.cancel(); m_transferSessions.erase(it); }
+	std::map<std::uint64_t, TransferSession>::iterator it = sessions.find(id);
+	if (it != sessions.end()) { it->second.cancel(); sessions.erase(it); }
 }
 
 void
