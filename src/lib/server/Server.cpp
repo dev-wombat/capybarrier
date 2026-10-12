@@ -49,6 +49,7 @@
 #include <fstream>
 #include <ctime>
 #include <stdexcept>
+#include <random>
 //
 // Server
 //
@@ -88,7 +89,6 @@ Server::Server(
 	m_events(events),
 	m_sendFileThread(NULL),
 	m_writeToDropDirThread(NULL),
-	m_nextTransferReceiverId(1),
 	m_ignoreFileTransfer(false),
 	m_enableClipboard(true),
 	m_sendDragInfoThread(NULL),
@@ -2098,7 +2098,14 @@ Server::transferManifestReceived(BaseClientProxy* source, std::uint64_t id, cons
 		return;
 	}
 	if (source == NULL || m_active == NULL || source == m_active) return;
-	TransferRoute route = {source, m_active, id, m_nextTransferReceiverId++};
+	// Receivers retain partial sessions across server connections and restarts.
+	std::random_device nonce;
+	std::uniform_int_distribution<std::uint64_t> ids;
+	std::uint64_t receiverId;
+	do {
+		receiverId = ids(nonce);
+	} while (m_transferReceiverRoutes.count(receiverId) != 0);
+	TransferRoute route = {source, m_active, id, receiverId};
 	m_transferRoutes[key] = route;
 	m_transferReceiverRoutes[route.receiverId] = key;
 	m_active->transferManifestSending(route.receiverId, manifest);

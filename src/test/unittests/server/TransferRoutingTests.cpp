@@ -87,6 +87,22 @@ TEST_F(TransferRoutingTests, repeatsManifestToOriginalReceiverAfterActiveScreenC
     EXPECT_TRUE(firstSender.manifestIds.empty());
 }
 
+TEST_F(TransferRoutingTests, freshTransferAfterServerRestartUsesNewReceiverId)
+{
+    {
+        Server server(config, &primary, &screen, &events, args);
+        server.setActive(&receiver);
+        server.transferManifestReceived(&firstSender, 7, "partial transfer");
+    }
+    {
+        Server server(config, &primary, &screen, &events, args);
+        server.setActive(&receiver);
+        server.transferManifestReceived(&firstSender, 7, "new transfer");
+    }
+    ASSERT_EQ(2u, receiver.manifestIds.size());
+    EXPECT_NE(receiver.manifestIds[0], receiver.manifestIds[1]);
+}
+
 TEST_F(TransferRoutingTests, receiverFailureStopsLocalSenderWaitingForAck)
 {
     Server server(config, &primary, &screen, &events, args);

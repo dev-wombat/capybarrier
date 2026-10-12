@@ -488,7 +488,6 @@ private:
     };
     std::map<TransferRouteKey, TransferRoute> m_transferRoutes;
     std::map<std::uint64_t, TransferRouteKey> m_transferReceiverRoutes;
-    std::uint64_t m_nextTransferReceiverId;
     bool                m_ignoreFileTransfer;
     bool                m_enableClipboard;
 
