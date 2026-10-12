@@ -36,6 +36,7 @@
 #include "base/XBase.h"
 
 #include <memory>
+#include <random>
 
 //
 // ServerProxy
@@ -967,8 +968,15 @@ void ServerProxy::transferFinishedSending(std::uint64_t id, bool success)
 void ServerProxy::transferManifestReceived()
 {
 	std::uint64_t id; std::string text; TransferManifest manifest;
-	bool accepted = ProtocolUtil::readf(m_stream, kMsgDTransferManifest + 4, &id, &text) &&
-		TransferManifest::parse(text, manifest);
+	if (!ProtocolUtil::readf(m_stream, kMsgDTransferManifest + 4, &id, &text)) return;
+	bool accepted = TransferManifest::parse(text, manifest);
+	if (!accepted) {
+		auto previous = m_transferSessions.find(id);
+		if (previous != m_transferSessions.end()) {
+			previous->second.cancel();
+			m_transferSessions.erase(previous);
+		}
+	}
 	if (accepted) {
 		std::map<std::uint64_t, TransferSession>::iterator previous = m_transferSessions.find(id);
 		if (previous != m_transferSessions.end()) {
@@ -979,11 +987,16 @@ void ServerProxy::transferManifestReceived()
 			}
 		}
 		else {
-			const barrier::fs::path root = barrier::fs::temp_directory_path() / "capybarrier-transfers" / std::to_string(id);
-			barrier::fs::remove_all(root);
-			TransferSession session;
-			accepted = session.accept(manifest, root.string());
-			if (accepted) m_transferSessions[id] = session;
+			try {
+				std::random_device nonce;
+				const barrier::fs::path root = barrier::fs::temp_directory_path() /
+					("capybarrier-transfer-" + std::to_string(id) + "-" +
+					 std::to_string(nonce()) + "-" + std::to_string(nonce()));
+				TransferSession session;
+				accepted = session.accept(manifest, root.string());
+				if (accepted) m_transferSessions[id] = session;
+			}
+			catch (const std::exception&) { accepted = false; }
 		}
 	}
 	transferAcceptSending(id, accepted);
@@ -1004,6 +1017,7 @@ void ServerProxy::transferChunkReceived()
 	if (!ProtocolUtil::readf(m_stream, kMsgDTransferChunk + 4, &id, &entry, &offset, &data)) return;
 	std::map<std::uint64_t, TransferSession>::iterator it = m_transferSessions.find(id);
 	if (it == m_transferSessions.end() || !it->second.writeChunk(entry, offset, data)) {
+		if (it != m_transferSessions.end()) { it->second.cancel(); m_transferSessions.erase(it); }
 		transferFinishedSending(id, false);
 		return;
 	}
@@ -1020,11 +1034,9 @@ void ServerProxy::transferFinishedReceived()
 	if (!ProtocolUtil::readf(m_stream, kMsgDTransferFinished + 4, &id, &success)) return;
 	std::map<std::uint64_t, TransferSession>::iterator it = m_transferSessions.find(id);
 	if (it == m_transferSessions.end()) return;
-	bool result = success != 0 && it->second.finalize();
-	if (result && !m_client->dropTarget().empty())
-		result = it->second.copyTo(m_client->dropTarget());
+	bool result = success != 0 && it->second.finalize() && it->second.copyTo(m_client->dropTarget());
 	transferFinishedSending(id, result);
-	if (!result) it->second.cancel();
+	it->second.cancel();
 	m_transferSessions.erase(it);
 }
 void ServerProxy::transferCancelReceived()

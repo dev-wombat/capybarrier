@@ -21,6 +21,7 @@
 #include "mt/Mutex.h"
 #include "barrier/FileChunk.h"
 #include "barrier/TransferManifest.h"
+#include "io/filesystem.h"
 #include "barrier/ClipboardChunk.h"
 #include "barrier/protocol_types.h"
 #include "base/EventTypes.h"
@@ -32,25 +33,47 @@
 #include "base/String.h"
 
 #include <fstream>
+#include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <map>
+#include <limits>
 #include <mutex>
 #include <stdexcept>
 
 using namespace std;
 
 static const size_t g_chunkSize = 32 * 1024; //32kb
-static std::uint64_t g_nextTransferId = 1;
+static std::atomic<std::uint64_t> g_nextTransferId{1};
 namespace {
 struct TransferAcceptance {
 	bool ready;
 	bool accepted;
 	std::uint64_t offset;
+	std::uint64_t expectedOffset;
 };
 std::mutex g_transferMutex;
 std::condition_variable g_transferCondition;
 std::map<std::uint64_t, TransferAcceptance> g_transferAcceptances;
+
+struct TransferGuard {
+	explicit TransferGuard(std::uint64_t id) : id(id) { StreamChunker::beginTransfer(id); }
+	~TransferGuard() { StreamChunker::finishTransfer(id); }
+	std::uint64_t id;
+};
+
+bool waitForChunkAck(std::uint64_t id, std::uint64_t offset)
+{
+	std::unique_lock<std::mutex> lock(g_transferMutex);
+	if (!g_transferCondition.wait_for(lock, std::chrono::seconds(30), [id, offset] {
+		auto transfer = g_transferAcceptances.find(id);
+		return transfer == g_transferAcceptances.end() || !transfer->second.accepted ||
+			transfer->second.offset == offset;
+	})) return false;
+	auto transfer = g_transferAcceptances.find(id);
+	return transfer != g_transferAcceptances.end() && transfer->second.accepted;
+}
 }
 
 bool StreamChunker::s_isChunkingFile = false;
@@ -133,49 +156,51 @@ StreamChunker::sendTransferFile(const char* filename, IEventQueue* events, void*
 	if (!TransferManifest::createForFile(filename, manifest) || !manifest.serialize(manifestText)) {
 		throw runtime_error("failed to create transfer manifest");
 	}
-	std::ifstream file(filename, std::ios::in | std::ios::binary);
+	std::ifstream file;
+	barrier::open_utf8_path(file, filename, std::ios::in | std::ios::binary);
 	if (!file.is_open()) throw runtime_error("failed to open file");
 	const std::uint64_t id = g_nextTransferId++;
-	beginTransfer(id);
+	TransferGuard transfer(id);
 	Event manifestEvent(events->forFile().fileChunkSending(), eventTarget);
 	manifestEvent.setDataObject(new TransferEvent(TransferEvent::kManifest, id, 0, 0, manifestText, true));
 	events->addEvent(manifestEvent);
-	if (!waitForTransferAcceptance(id)) {
-		Event finishedEvent(events->forFile().fileChunkSending(), eventTarget);
-		finishedEvent.setDataObject(new TransferEvent(TransferEvent::kFinished, id, 0, 0, "", false));
-		events->addEvent(finishedEvent);
-		finishTransfer(id);
-		return;
-	}
-
+	bool success = waitForTransferAcceptance(id);
 	std::uint64_t offset = transferOffset(id);
-	file.seekg(static_cast<std::streamoff>(offset));
+	const std::uint64_t size = manifest.entries()[0].size;
+	success = success && offset <= size &&
+		offset <= static_cast<std::uint64_t>(std::numeric_limits<std::streamoff>::max());
+	if (success) {
+		file.seekg(static_cast<std::streamoff>(offset));
+		success = file.good();
+	}
 	char buffer[g_chunkSize];
-	while (file.good()) {
-		file.read(buffer, sizeof(buffer));
-		const std::streamsize count = file.gcount();
-		if (count <= 0) break;
+	while (success && offset < size) {
+		const auto count = static_cast<std::streamsize>(std::min<std::uint64_t>(sizeof(buffer), size - offset));
+		file.read(buffer, count);
+		if (file.gcount() != count || file.bad()) { success = false; break; }
+		{
+			std::lock_guard<std::mutex> lock(g_transferMutex);
+			auto state = g_transferAcceptances.find(id);
+			if (state == g_transferAcceptances.end() || !state->second.accepted) { success = false; break; }
+			state->second.expectedOffset = offset + count;
+		}
 		Event chunkEvent(events->forFile().fileChunkSending(), eventTarget);
 		chunkEvent.setDataObject(new TransferEvent(TransferEvent::kChunk, id, 0, offset,
 			std::string(buffer, static_cast<std::size_t>(count)), true));
 		events->addEvent(chunkEvent);
 		offset += count;
-	}
-	if (file.bad()) {
-		finishTransfer(id);
-		throw runtime_error("failed reading file");
+		success = waitForChunkAck(id, offset);
 	}
 	Event finishedEvent(events->forFile().fileChunkSending(), eventTarget);
-	finishedEvent.setDataObject(new TransferEvent(TransferEvent::kFinished, id, 0, offset, "", true));
+	finishedEvent.setDataObject(new TransferEvent(TransferEvent::kFinished, id, 0, offset, "", success));
 	events->addEvent(finishedEvent);
-	finishTransfer(id);
 }
 
 void
 StreamChunker::beginTransfer(std::uint64_t id)
 {
 	std::lock_guard<std::mutex> lock(g_transferMutex);
-	g_transferAcceptances[id] = TransferAcceptance{false, false, 0};
+	g_transferAcceptances[id] = TransferAcceptance{false, false, 0, 0};
 }
 
 void
@@ -184,7 +209,8 @@ StreamChunker::acceptTransfer(std::uint64_t id, bool accepted)
 	std::lock_guard<std::mutex> lock(g_transferMutex);
 	std::map<std::uint64_t, TransferAcceptance>::iterator transfer = g_transferAcceptances.find(id);
 	if (transfer == g_transferAcceptances.end()) return;
-	transfer->second.ready = true;
+	// DTRA accepts the manifest; the following DTRK supplies the initial offset.
+	if (!accepted) transfer->second.ready = true;
 	transfer->second.accepted = accepted;
 	g_transferCondition.notify_all();
 }
@@ -196,6 +222,7 @@ StreamChunker::resumeTransfer(std::uint64_t id, UInt32 entry, std::uint64_t offs
 	std::lock_guard<std::mutex> lock(g_transferMutex);
 	std::map<std::uint64_t, TransferAcceptance>::iterator transfer = g_transferAcceptances.find(id);
 	if (transfer == g_transferAcceptances.end() || !transfer->second.accepted) return;
+	if (transfer->second.ready && offset != transfer->second.expectedOffset) return;
 	transfer->second.offset = offset;
 	transfer->second.ready = true;
 	g_transferCondition.notify_all();
@@ -205,12 +232,12 @@ bool
 StreamChunker::waitForTransferAcceptance(std::uint64_t id)
 {
 	std::unique_lock<std::mutex> lock(g_transferMutex);
-	std::map<std::uint64_t, TransferAcceptance>::iterator transfer = g_transferAcceptances.find(id);
-	if (transfer == g_transferAcceptances.end()) return false;
 	if (!g_transferCondition.wait_for(lock, std::chrono::seconds(30), [id]() {
-		return g_transferAcceptances[id].ready;
+		auto transfer = g_transferAcceptances.find(id);
+		return transfer == g_transferAcceptances.end() || transfer->second.ready;
 	})) return false;
-	return g_transferAcceptances[id].accepted;
+	auto transfer = g_transferAcceptances.find(id);
+	return transfer != g_transferAcceptances.end() && transfer->second.accepted;
 }
 
 std::uint64_t
@@ -226,6 +253,7 @@ StreamChunker::finishTransfer(std::uint64_t id)
 {
 	std::lock_guard<std::mutex> lock(g_transferMutex);
 	g_transferAcceptances.erase(id);
+	g_transferCondition.notify_all();
 }
 
 void

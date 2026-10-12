@@ -20,6 +20,7 @@
 
 #include <cstring>
 #include <fstream>
+#include <iterator>
 #include <vector>
 
 using ::testing::_;
@@ -97,6 +98,26 @@ TEST(TransferManifestTests, rejectsPathsOutsideTheTransferRoot)
 	EXPECT_FALSE(TransferManifest::isSafeRelativePath("folder//file"));
 	EXPECT_FALSE(TransferManifest::isSafeRelativePath(""));
 	EXPECT_TRUE(TransferManifest::isSafeRelativePath("folder/file.txt"));
+}
+
+TEST(TransferManifestTests, rejectsPathsThatAliasOrEscapeOnWindows)
+{
+	const std::string paths[] = {"C:/secret", "folder/file:stream", "NUL", "con.txt",
+		"folder/COM1.log", "LPT9", "file.", "folder /file", "folder/../file",
+		"bad?name", std::string("note\0.txt", 9), "line\rbreak", "COM\xc2\xb9.txt", "LPT\xc2\xb3"};
+	for (const auto& path : paths) EXPECT_FALSE(TransferManifest::isSafeRelativePath(path)) << path;
+	EXPECT_TRUE(TransferManifest::isSafeRelativePath("스크린샷/image.png"));
+	EXPECT_TRUE(TransferManifest::isSafeRelativePath("COM10.txt"));
+}
+
+TEST(TransferManifestTests, rejectsDuplicateAndConflictingEntries)
+{
+	const std::string file = "F 8:note.txt 4 64:88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589\n";
+	TransferManifest manifest;
+	EXPECT_FALSE(TransferManifest::parse(file + file, manifest));
+	EXPECT_FALSE(TransferManifest::parse(file + "D 8:NOTE.TXT 0 0:\n", manifest));
+	EXPECT_FALSE(TransferManifest::parse(file + "D 12:note.txt/sub 0 0:\n", manifest));
+	EXPECT_FALSE(TransferManifest::parse("D 12:note.txt/sub 0 0:\n" + file, manifest));
 }
 
 TEST(TransferManifestTests, parsesLengthPrefixedFileEntries)
@@ -249,3 +270,144 @@ TEST(TransferSessionTests, copiesFinalizedFileToDropDirectory)
 	barrier::fs::remove_all(root);
 	barrier::fs::remove_all(drop);
 }
+
+class TransferDeliveryTests : public testing::Test {
+protected:
+	void SetUp() override
+	{
+		root = barrier::fs::temp_directory_path() / "capybarrier-delivery-tests";
+		barrier::fs::remove_all(root);
+		barrier::fs::create_directories(root);
+		source = root / "source";
+		drop = root / "drop";
+		ASSERT_TRUE(TransferManifest::parse(
+			"F 8:note.txt 4 64:88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589\n", manifest));
+	}
+
+	void TearDown() override { barrier::fs::remove_all(root); }
+
+	std::string read(const barrier::fs::path& path)
+	{
+		std::ifstream file;
+		barrier::open_utf8_path(file, path, std::ios::binary | std::ios::in);
+		return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+	}
+
+	barrier::fs::path root, source, drop;
+	TransferManifest manifest;
+	TransferSession session;
+};
+
+TEST_F(TransferDeliveryTests, doesNotExposeFileBeforeHashVerification)
+{
+	ASSERT_TRUE(session.accept(manifest, source.string()));
+	ASSERT_TRUE(session.writeChunk(0, 0, "abcd"));
+	EXPECT_FALSE(session.copyTo(drop.string()));
+	EXPECT_FALSE(barrier::fs::exists(drop));
+}
+
+TEST_F(TransferDeliveryTests, preservesExistingDestinationFile)
+{
+	ASSERT_TRUE(session.accept(manifest, source.string()));
+	ASSERT_TRUE(session.writeChunk(0, 0, "abcd"));
+	ASSERT_TRUE(session.finalize());
+	barrier::fs::create_directories(drop);
+	std::ofstream existing;
+	barrier::open_utf8_path(existing, drop / "note.txt", std::ios::binary | std::ios::out);
+	existing << "keep me";
+	existing.close();
+	EXPECT_FALSE(session.copyTo(drop.string()));
+	EXPECT_EQ("keep me", read(drop / "note.txt"));
+}
+
+TEST_F(TransferDeliveryTests, reportsDestinationIoErrorWithoutThrowing)
+{
+	ASSERT_TRUE(session.accept(manifest, source.string()));
+	ASSERT_TRUE(session.writeChunk(0, 0, "abcd"));
+	ASSERT_TRUE(session.finalize());
+	std::ofstream blocked;
+	barrier::open_utf8_path(blocked, drop, std::ios::binary | std::ios::out);
+	blocked << "keep me";
+	blocked.close();
+	bool result = true;
+	EXPECT_NO_THROW(result = session.copyTo(drop.string()));
+	EXPECT_FALSE(result);
+	EXPECT_EQ("keep me", read(drop));
+}
+
+TEST_F(TransferDeliveryTests, preservesEmptyFilesAndDirectories)
+{
+	ASSERT_TRUE(TransferManifest::parse(
+		"D 6:folder 0 0:\nD 12:folder/empty 0 0:\n"
+		"F 15:folder/zero.txt 0 64:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\n", manifest));
+	ASSERT_TRUE(session.accept(manifest, source.string()));
+	ASSERT_TRUE(session.finalize());
+	EXPECT_TRUE(session.copyTo(drop.string()));
+	EXPECT_TRUE(barrier::fs::is_directory(drop / "folder/empty"));
+	EXPECT_TRUE(barrier::fs::is_regular_file(drop / "folder/zero.txt"));
+}
+
+TEST_F(TransferDeliveryTests, cancelledSessionCannotRecreatePartialFiles)
+{
+	ASSERT_TRUE(session.accept(manifest, source.string()));
+	ASSERT_TRUE(session.writeChunk(0, 0, "ab"));
+	session.cancel();
+	EXPECT_FALSE(session.writeChunk(0, 2, "cd"));
+	EXPECT_FALSE(session.finalize());
+	EXPECT_FALSE(barrier::fs::exists(source));
+}
+
+TEST_F(TransferDeliveryTests, refusesChunksLargerThanOneMiB)
+{
+	ASSERT_TRUE(TransferManifest::parse(
+		"F 8:note.txt 1048577 64:0000000000000000000000000000000000000000000000000000000000000000\n", manifest));
+	ASSERT_TRUE(session.accept(manifest, source.string()));
+	EXPECT_FALSE(session.writeChunk(0, 0, std::string(1048577, 'a')));
+	EXPECT_EQ(0u, session.verifiedOffsets()[0].offset);
+}
+
+TEST_F(TransferDeliveryTests, refusesExistingReceiveRootWithoutModifyingIt)
+{
+	barrier::fs::create_directories(source);
+	std::ofstream existing;
+	barrier::open_utf8_path(existing, source / "note.txt", std::ios::binary | std::ios::out);
+	existing << "keep me";
+	existing.close();
+	EXPECT_FALSE(session.accept(manifest, source.string()));
+	session.cancel();
+	EXPECT_EQ("keep me", read(source / "note.txt"));
+}
+
+TEST_F(TransferDeliveryTests, finalizedFileCannotBeModifiedByFurtherChunks)
+{
+	ASSERT_TRUE(session.accept(manifest, source.string()));
+	ASSERT_TRUE(session.writeChunk(0, 0, "abcd"));
+	ASSERT_TRUE(session.finalize());
+	EXPECT_FALSE(session.writeChunk(0, 4, ""));
+}
+
+#if SYSAPI_UNIX
+TEST_F(TransferDeliveryTests, refusesSymlinkDestinationWithoutWritingOutsideIt)
+{
+	ASSERT_TRUE(session.accept(manifest, source.string()));
+	ASSERT_TRUE(session.writeChunk(0, 0, "abcd"));
+	ASSERT_TRUE(session.finalize());
+	const auto outside = root / "outside";
+	barrier::fs::create_directory(outside);
+	barrier::fs::create_directory_symlink(outside, drop);
+	EXPECT_FALSE(session.copyTo(drop.string()));
+	EXPECT_FALSE(barrier::fs::exists(outside / "note.txt"));
+}
+
+TEST_F(TransferDeliveryTests, refusesDanglingDestinationSymlink)
+{
+	ASSERT_TRUE(session.accept(manifest, source.string()));
+	ASSERT_TRUE(session.writeChunk(0, 0, "abcd"));
+	ASSERT_TRUE(session.finalize());
+	barrier::fs::create_directory(drop);
+	const auto outside = root / "outside.txt";
+	barrier::fs::create_symlink(outside, drop / "note.txt");
+	EXPECT_FALSE(session.copyTo(drop.string()));
+	EXPECT_FALSE(barrier::fs::exists(outside));
+}
+#endif

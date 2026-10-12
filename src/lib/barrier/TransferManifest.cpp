@@ -15,6 +15,7 @@
 
 #include <fstream>
 #include <limits>
+#include <map>
 #include <sstream>
 
 namespace {
@@ -110,6 +111,16 @@ TransferManifest::isSafeRelativePath(const std::string& path)
 		if (component.empty() || component == "." || component == "..") {
 			return false;
 		}
+		if (component.back() == '.' || component.back() == ' ' ||
+			component.find_first_of("<>:\"|?*") != std::string::npos) return false;
+		std::string stem = component.substr(0, component.find('.'));
+		for (char& c : stem) if (c >= 'a' && c <= 'z') c -= 'a' - 'A';
+		const bool port = stem.compare(0, 3, "COM") == 0 || stem.compare(0, 3, "LPT") == 0;
+		const std::string number = stem.size() > 3 ? stem.substr(3) : "";
+		if (stem == "CON" || stem == "PRN" || stem == "AUX" || stem == "NUL" ||
+			(port && ((number.size() == 1 && number[0] >= '1' && number[0] <= '9') ||
+			 number == "\xc2\xb9" || number == "\xc2\xb2" || number == "\xc2\xb3"))) return false;
+		for (unsigned char c : component) if (c < 32) return false;
 		if (end == std::string::npos) {
 			return true;
 		}
@@ -123,6 +134,7 @@ bool
 TransferManifest::parse(const std::string& text, TransferManifest& manifest)
 {
 	std::vector<Entry> entries;
+	std::map<std::string, bool> paths;
 	std::string::size_type lineBegin = 0;
 	while (lineBegin < text.size()) {
 		const std::string::size_type lineEnd = text.find('\n', lineBegin);
@@ -146,6 +158,18 @@ TransferManifest::parse(const std::string& text, TransferManifest& manifest)
 		if ((entry.isDirectory && (entry.size != 0 || !entry.sha256.empty())) ||
 			(!entry.isDirectory && !isSha256(entry.sha256))) {
 			return false;
+		}
+		std::string key = entry.path;
+		for (char& c : key) if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
+		if (!paths.emplace(key, entry.isDirectory).second) return false;
+		for (auto separator = key.find('/'); separator != std::string::npos;
+			 separator = key.find('/', separator + 1)) {
+			auto parent = paths.find(key.substr(0, separator));
+			if (parent != paths.end() && !parent->second) return false;
+		}
+		if (!entry.isDirectory) {
+			auto child = paths.lower_bound(key + '/');
+			if (child != paths.end() && child->first.compare(0, key.size() + 1, key + '/') == 0) return false;
 		}
 		entries.push_back(entry);
 		lineBegin = lineEnd + 1;

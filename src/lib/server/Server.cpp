@@ -2091,9 +2091,13 @@ Server::onFileChunkSending(const void* data)
 void
 Server::transferManifestReceived(BaseClientProxy* source, std::uint64_t id, const std::string& manifest)
 {
-	if (source == NULL || m_active == NULL || source == m_active) return;
 	TransferRouteKey key(source, id);
-	if (m_transferRoutes.find(key) != m_transferRoutes.end()) return;
+	auto previous = m_transferRoutes.find(key);
+	if (previous != m_transferRoutes.end()) {
+		previous->second.receiver->transferManifestSending(previous->second.receiverId, manifest);
+		return;
+	}
+	if (source == NULL || m_active == NULL || source == m_active) return;
 	TransferRoute route = {source, m_active, id, m_nextTransferReceiverId++};
 	m_transferRoutes[key] = route;
 	m_transferReceiverRoutes[route.receiverId] = key;
@@ -2146,7 +2150,11 @@ Server::transferFinishedReceived(BaseClientProxy* source, std::uint64_t id, bool
 	if (receiver == m_transferReceiverRoutes.end()) return;
 	std::map<TransferRouteKey, TransferRoute>::iterator route = m_transferRoutes.find(receiver->second);
 	if (route == m_transferRoutes.end() || route->second.receiver != source) return;
-	route->second.sender->transferFinishedSending(route->second.senderId, success);
+	if (route->second.sender == m_primaryClient) {
+		if (!success) StreamChunker::acceptTransfer(route->second.senderId, false);
+	}
+	else
+		route->second.sender->transferFinishedSending(route->second.senderId, success);
 	m_transferReceiverRoutes.erase(receiver);
 	m_transferRoutes.erase(route);
 }
@@ -2165,7 +2173,10 @@ Server::transferCancelReceived(BaseClientProxy* source, std::uint64_t id)
 	if (receiver == m_transferReceiverRoutes.end()) return;
 	std::map<TransferRouteKey, TransferRoute>::iterator route = m_transferRoutes.find(receiver->second);
 	if (route == m_transferRoutes.end() || route->second.receiver != source) return;
-	route->second.sender->transferCancelSending(route->second.senderId);
+	if (route->second.sender == m_primaryClient)
+		StreamChunker::acceptTransfer(route->second.senderId, false);
+	else
+		route->second.sender->transferCancelSending(route->second.senderId);
 	m_transferReceiverRoutes.erase(receiver);
 	m_transferRoutes.erase(route);
 }

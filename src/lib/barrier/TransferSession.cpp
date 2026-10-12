@@ -10,10 +10,13 @@
 #include "TransferSession.h"
 
 #include "io/filesystem.h"
+#include "barrier/protocol_types.h"
 
 #include <openssl/evp.h>
 
 #include <fstream>
+#include <limits>
+#include <system_error>
 
 namespace {
 
@@ -69,23 +72,30 @@ sha256File(const barrier::fs::path& path, std::string& value)
 bool
 TransferSession::accept(const TransferManifest& manifest, const std::string& root)
 {
+	if (!m_root.empty() || root.empty() || manifest.entries().empty()) return false;
+	std::error_code error;
+	if (!barrier::fs::create_directory(root, error) || error) return false;
 	m_root = root;
 	m_entries = manifest.entries();
 	m_offsets.assign(m_entries.size(), VerifiedOffset{0});
-
-	if (m_entries.empty()) {
-		return false;
-	}
-
-	barrier::fs::create_directories(m_root);
+	m_finalized = false;
+	barrier::fs::permissions(m_root, barrier::fs::perms::owner_all, error);
+	if (error) { cancel(); return false; }
 	for (std::size_t i = 0; i < m_entries.size(); ++i) {
 		const barrier::fs::path path = barrier::fs::path(m_root) / m_entries[i].path;
 		if (m_entries[i].isDirectory) {
-			barrier::fs::create_directories(path);
+			barrier::fs::create_directories(path, error);
 		}
 		else {
-			barrier::fs::create_directories(path.parent_path());
+			barrier::fs::create_directories(path.parent_path(), error);
+			if (!error) {
+				std::ofstream file;
+				barrier::open_utf8_path(file, path, std::ios::out | std::ios::binary);
+				file.close();
+				if (!file) { cancel(); return false; }
+			}
 		}
+		if (error) { cancel(); return false; }
 	}
 	return true;
 }
@@ -107,7 +117,9 @@ TransferSession::resumes(const TransferManifest& manifest) const
 bool
 TransferSession::writeChunk(std::size_t entry, std::uint64_t offset, const std::string& data)
 {
-	if (entry >= m_entries.size() || m_entries[entry].isDirectory ||
+	if (m_finalized || entry >= m_entries.size() || m_entries[entry].isDirectory ||
+		data.size() > PROTOCOL_MAX_STRING_LENGTH || offset > m_entries[entry].size ||
+		offset > static_cast<std::uint64_t>(std::numeric_limits<std::streamoff>::max()) ||
 		offset != m_offsets[entry].offset || data.size() > m_entries[entry].size - offset) {
 		return false;
 	}
@@ -138,6 +150,7 @@ TransferSession::writeChunk(std::size_t entry, std::uint64_t offset, const std::
 bool
 TransferSession::finalize()
 {
+	if (m_root.empty() || m_entries.empty()) return false;
 	for (std::size_t i = 0; i < m_entries.size(); ++i) {
 		if (m_entries[i].isDirectory) {
 			continue;
@@ -146,25 +159,47 @@ TransferSession::finalize()
 		const barrier::fs::path path = barrier::fs::path(m_root) / m_entries[i].path;
 		if (m_offsets[i].offset != m_entries[i].size || !sha256File(path, digest) ||
 			digest != m_entries[i].sha256) {
-			barrier::fs::remove_all(m_root);
+			cancel();
 			return false;
 		}
 	}
+	m_finalized = true;
 	return true;
 }
 
 bool
 TransferSession::copyTo(const std::string& destination) const
 {
-	if (destination.empty()) return false;
+	if (!m_finalized || destination.empty()) return false;
 	const barrier::fs::path target(destination);
-	barrier::fs::create_directories(target);
+	std::error_code error;
+	barrier::fs::path parent;
+	for (const auto& component : barrier::fs::absolute(target, error)) {
+		if (error) return false;
+		parent /= component;
+		const auto status = barrier::fs::symlink_status(parent, error);
+		if (error && error != std::errc::no_such_file_or_directory) return false;
+		if (barrier::fs::exists(status) && !barrier::fs::is_directory(status)) return false;
+	}
+	if (error && error != std::errc::no_such_file_or_directory) return false;
+	for (const auto& entry : m_entries) {
+		const auto top = *barrier::fs::path(entry.path).begin();
+		const auto status = barrier::fs::symlink_status(target / top, error);
+		if (barrier::fs::exists(status) || (error && error != std::errc::no_such_file_or_directory)) return false;
+	}
+	barrier::fs::create_directories(target, error);
+	if (error) return false;
 	for (std::size_t i = 0; i < m_entries.size(); ++i) {
-		if (m_entries[i].isDirectory) continue;
 		const barrier::fs::path source = barrier::fs::path(m_root) / m_entries[i].path;
 		const barrier::fs::path output = target / m_entries[i].path;
-		barrier::fs::create_directories(output.parent_path());
-		barrier::fs::copy_file(source, output, barrier::fs::copy_options::overwrite_existing);
+		if (m_entries[i].isDirectory) {
+			barrier::fs::create_directories(output, error);
+			if (error) return false;
+		}
+		else {
+			barrier::fs::create_directories(output.parent_path(), error);
+			if (error || !barrier::fs::copy_file(source, output, barrier::fs::copy_options::none, error) || error) return false;
+		}
 	}
 	return true;
 }
@@ -172,7 +207,12 @@ TransferSession::copyTo(const std::string& destination) const
 void
 TransferSession::cancel()
 {
-	barrier::fs::remove_all(m_root);
+	std::error_code error;
+	if (!m_root.empty()) barrier::fs::remove_all(m_root, error);
+	m_root.clear();
+	m_entries.clear();
+	m_offsets.clear();
+	m_finalized = false;
 }
 
 const std::vector<TransferSession::VerifiedOffset>&

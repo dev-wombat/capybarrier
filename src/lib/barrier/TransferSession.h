@@ -36,6 +36,7 @@ private:
 	std::string m_root;
 	std::vector<TransferManifest::Entry> m_entries;
 	std::vector<VerifiedOffset> m_offsets;
+	bool m_finalized = false;
 };
 
 #endif // BARRIER_LIB_BARRIER_TRANSFERSESSION_H
