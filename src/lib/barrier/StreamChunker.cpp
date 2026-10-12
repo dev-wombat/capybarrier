@@ -223,6 +223,7 @@ StreamChunker::resumeTransfer(std::uint64_t id, UInt32 entry, std::uint64_t offs
 	std::map<std::uint64_t, TransferAcceptance>::iterator transfer = g_transferAcceptances.find(id);
 	if (transfer == g_transferAcceptances.end() || !transfer->second.accepted) return;
 	if (transfer->second.ready && offset != transfer->second.expectedOffset) return;
+	if (!transfer->second.ready) transfer->second.expectedOffset = offset;
 	transfer->second.offset = offset;
 	transfer->second.ready = true;
 	g_transferCondition.notify_all();

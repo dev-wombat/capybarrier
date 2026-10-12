@@ -4,6 +4,8 @@
  */
 
 #include "barrier/StreamChunker.h"
+#include "barrier/TransferManifest.h"
+#include "barrier/TransferSession.h"
 #include "base/EventTypes.h"
 #include "io/filesystem.h"
 #include "test/global/gtest.h"
@@ -14,6 +16,7 @@
 #include <deque>
 #include <fstream>
 #include <future>
+#include <iterator>
 #include <mutex>
 
 TEST(StreamChunkerTests, sendsChunksOnlyAfterTransferIsAccepted)
@@ -41,6 +44,16 @@ TEST(StreamChunkerTests, resumesFromTheReceiverVerifiedOffset)
     EXPECT_TRUE(StreamChunker::waitForTransferAcceptance(44));
     EXPECT_EQ(1024u, StreamChunker::transferOffset(44));
     StreamChunker::finishTransfer(44);
+}
+
+TEST(StreamChunkerTests, staleInitialAckCannotRewindResumeOffset)
+{
+    StreamChunker::beginTransfer(45);
+    StreamChunker::acceptTransfer(45, true);
+    StreamChunker::resumeTransfer(45, 0, 2);
+    StreamChunker::resumeTransfer(45, 0, 0);
+    EXPECT_EQ(2u, StreamChunker::transferOffset(45));
+    StreamChunker::finishTransfer(45);
 }
 
 namespace {
@@ -108,6 +121,7 @@ protected:
         const auto manifest = events.take();
         ASSERT_EQ(StreamChunker::TransferEvent::kManifest, manifest.m_type);
         id = manifest.m_id;
+        manifestText = manifest.m_data;
     }
 
     void TearDown() override
@@ -122,6 +136,7 @@ protected:
     barrier::fs::path root, path;
     std::future<void> sender;
     std::uint64_t id = 0;
+    std::string manifestText;
 };
 
 TEST_F(TransferSenderTests, waitsForInitialOffsetAfterAcceptance)
@@ -196,6 +211,31 @@ TEST_F(TransferSenderTests, stopsWithoutQueueingMoreChunksWhenReceiverRejects)
     const auto finished = events.take();
     EXPECT_EQ(StreamChunker::TransferEvent::kFinished, finished.m_type);
     EXPECT_FALSE(finished.m_success);
+}
+
+TEST_F(TransferSenderTests, resumedChunksCompleteRealReceiverHashAndDelivery)
+{
+    start("abcd");
+    TransferManifest manifest;
+    ASSERT_TRUE(TransferManifest::parse(manifestText, manifest));
+    TransferSession receiver;
+    ASSERT_TRUE(receiver.accept(manifest, (root / "receiver").string()));
+    ASSERT_TRUE(receiver.writeChunk(0, 0, "ab"));
+    StreamChunker::acceptTransfer(id, true);
+    StreamChunker::resumeTransfer(id, 0, receiver.verifiedOffsets()[0].offset);
+    const auto chunk = events.take();
+    ASSERT_EQ(StreamChunker::TransferEvent::kChunk, chunk.m_type);
+    EXPECT_EQ(2u, chunk.m_offset);
+    ASSERT_TRUE(receiver.writeChunk(chunk.m_entry, chunk.m_offset, chunk.m_data));
+    StreamChunker::resumeTransfer(id, 0, receiver.verifiedOffsets()[0].offset);
+    const auto finished = events.take();
+    ASSERT_EQ(StreamChunker::TransferEvent::kFinished, finished.m_type);
+    ASSERT_TRUE(finished.m_success);
+    ASSERT_TRUE(receiver.finalize());
+    ASSERT_TRUE(receiver.copyTo((root / "delivered").string()));
+    std::ifstream file;
+    barrier::open_utf8_path(file, root / "delivered/file.txt", std::ios::binary | std::ios::in);
+    EXPECT_EQ("abcd", std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()));
 }
 
 } // namespace
