@@ -33,6 +33,8 @@ CMakeCache.txt
 /deps/
 /out/build/x64-Debug
 /build-agent
+/build-release-contract/
+!/agent/tests/verify-openssl.cmake
 /.worktrees
 /agent/state.json
 /agent/logs/

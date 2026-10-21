@@ -1,0 +1,10 @@
+# Configure with -DCMAKE_PROJECT_INCLUDE=<this file> to check the build contract.
+function(verify_openssl_targets)
+    if(NOT TARGET OpenSSL::SSL OR NOT TARGET OpenSSL::Crypto)
+        message(FATAL_ERROR "TLS consumers need imported OpenSSL targets, not bundled legacy libraries")
+    endif()
+    if(OPENSSL_VERSION VERSION_LESS "3.0")
+        message(FATAL_ERROR "Native previews require OpenSSL 3 or newer")
+    endif()
+endfunction()
+cmake_language(DEFER CALL verify_openssl_targets)

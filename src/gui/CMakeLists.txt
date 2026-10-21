@@ -136,10 +136,14 @@ target_compile_definitions (barrier PRIVATE -DBARRIER_VERSION_STAGE="${BARRIER_V
 target_compile_definitions (barrier PRIVATE -DBARRIER_REVISION="${BARRIER_REVISION}")
 
 if (WIN32)
-    include_directories ($ENV{BONJOUR_SDK_HOME}/Include)
+    find_path (DNSSD_INCLUDE_DIR dns_sd.h HINTS "$ENV{BONJOUR_SDK_HOME}/Include")
     find_library (DNSSD_LIB dnssd.lib
                   HINTS ENV BONJOUR_SDK_HOME
                   PATH_SUFFIXES "Lib/x64")
+    if (NOT DNSSD_INCLUDE_DIR OR NOT DNSSD_LIB)
+        message (FATAL_ERROR "Bonjour headers and dnssd library are required")
+    endif()
+    include_directories (${DNSSD_INCLUDE_DIR})
     set_target_properties (barrier PROPERTIES LINK_FLAGS "/NODEFAULTLIB:LIBCMT")
     target_link_libraries (barrier ${DNSSD_LIB})
 elseif (APPLE)

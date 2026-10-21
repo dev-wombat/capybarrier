@@ -1,0 +1,237 @@
+name: Native preview release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [agent/release-preview]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: native-preview-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PREVIEW_TAG: preview-${{ github.run_number }}
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Create a draft tied to this exact source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$PREVIEW_TAG" --target "$GITHUB_SHA" --draft --prerelease \
+            --title "CapyBarrier $PREVIEW_TAG (experimental)" \
+            --notes-file docs/superpowers/verification/native-preview.md
+
+  windows:
+    needs: prepare
+    runs-on: windows-2022
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Install pinned native dependencies
+        run: |
+          python -m pip install aqtinstall==3.3.0
+          if ($LASTEXITCODE) { throw 'aqtinstall installation failed' }
+          python -m aqt install-qt windows desktop 5.15.2 win64_msvc2019_64 -O "$env:RUNNER_TEMP/Qt"
+          if ($LASTEXITCODE) { throw 'Qt installation failed' }
+          git clone https://github.com/microsoft/vcpkg.git "$env:RUNNER_TEMP/vcpkg"
+          if ($LASTEXITCODE) { throw 'vcpkg checkout failed' }
+          git -C "$env:RUNNER_TEMP/vcpkg" checkout 857036234d15fbed8f30fed66e898d7725446c0c
+          if ($LASTEXITCODE) { throw 'vcpkg revision not found' }
+          & "$env:RUNNER_TEMP/vcpkg/bootstrap-vcpkg.bat" -disableMetrics
+          if ($LASTEXITCODE) { throw 'vcpkg bootstrap failed' }
+          & "$env:RUNNER_TEMP/vcpkg/vcpkg.exe" install openssl:x64-windows mdnsresponder:x64-windows
+          if ($LASTEXITCODE) { throw 'Native dependency build failed' }
+          "$env:RUNNER_TEMP/Qt/5.15.2/msvc2019_64/bin" >> $env:GITHUB_PATH
+          "$env:RUNNER_TEMP/vcpkg/installed/x64-windows/bin" >> $env:GITHUB_PATH
+      - name: Configure, build and run the complete test suite
+        run: |
+          cmake -S . -B build-native -G "Visual Studio 17 2022" -A x64 `
+            -DBARRIER_BUILD_INSTALLER=OFF -DBARRIER_BUILD_TESTS=ON `
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 `
+            "-DCMAKE_TOOLCHAIN_FILE=$env:RUNNER_TEMP/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+            "-DCMAKE_PREFIX_PATH=$env:RUNNER_TEMP/Qt/5.15.2/msvc2019_64" `
+            "-DCMAKE_PROJECT_INCLUDE=$env:GITHUB_WORKSPACE/agent/tests/verify-openssl.cmake"
+          if ($LASTEXITCODE) { throw 'Configure failed' }
+          cmake --build build-native --config Release --parallel 4
+          if ($LASTEXITCODE) { throw 'Build failed' }
+          ctest --test-dir build-native -C Release --output-on-failure
+          if ($LASTEXITCODE) { throw 'Tests failed' }
+      - name: Package and check runtime startup
+        run: |
+          $package = "$env:RUNNER_TEMP/CapyBarrier-Windows-x64"
+          New-Item -ItemType Directory -Path $package | Out-Null
+          Copy-Item build-native/bin/Release/barrier.exe,build-native/bin/Release/barrierc.exe,build-native/bin/Release/barriers.exe,build-native/bin/Release/*.dll $package
+          Copy-Item "$env:RUNNER_TEMP/vcpkg/installed/x64-windows/bin/*.dll" $package
+          & windeployqt --release --no-translations "$package/barrier.exe"
+          if ($LASTEXITCODE) { throw 'Qt deployment failed' }
+          $vs = & "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe" -latest -property installationPath
+          $crt = Get-ChildItem "$vs/VC/Redist/MSVC/*/x64/Microsoft.VC143.CRT" -Directory | Sort-Object FullName -Descending | Select-Object -First 1
+          if (!$crt) { throw 'MSVC runtime not found' }
+          Copy-Item "$($crt.FullName)/*.dll" $package
+          Copy-Item LICENSE,docs/superpowers/verification/native-preview.md $package
+          $env:GITHUB_SHA | Set-Content "$package/SOURCE_COMMIT.txt"
+          New-Item -ItemType Directory "$package/licenses" | Out-Null
+          Copy-Item "$env:RUNNER_TEMP/vcpkg/installed/x64-windows/share" "$package/licenses/vcpkg" -Recurse
+          foreach ($license in @('LICENSE.LGPL3','LICENSE.GPL3','LICENSE.GPL3-EXCEPT','LICENSE.FDL')) {
+            Invoke-WebRequest "https://raw.githubusercontent.com/qt/qtbase/v5.15.2/$license" -OutFile "$package/licenses/Qt-$license"
+          }
+          foreach ($binary in @('barrier','barrierc','barriers')) {
+            $bytes = [System.IO.File]::ReadAllBytes("$package/$binary.exe")
+            $pe = [BitConverter]::ToInt32($bytes, 0x3c)
+            if ([BitConverter]::ToUInt16($bytes, $pe + 4) -ne 0x8664) { throw "$binary is not x64" }
+          }
+          $buildPath = $env:PATH
+          $env:PATH = "$package;$env:SystemRoot/System32;$env:SystemRoot"
+          Set-Location $env:RUNNER_TEMP
+          foreach ($binary in @('barrierc','barriers')) {
+            $output = & "$package/$binary.exe" --version 2>&1
+            if ($LASTEXITCODE -ne 3 -or "$output" -notmatch 'Protocol version 2.0') { throw "$binary cannot start: $output" }
+          }
+          $global:LASTEXITCODE = 0
+          $env:PATH = $buildPath
+          $archive = "$env:RUNNER_TEMP/CapyBarrier-Windows-x64.zip"
+          Compress-Archive -Path "$package/*" -DestinationPath $archive
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+          "$hash  CapyBarrier-Windows-x64.zip" | Set-Content "$env:RUNNER_TEMP/CapyBarrier-Windows-x64.sha256" -Encoding ascii
+      - name: Upload to the draft only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$env:PREVIEW_TAG" "$env:RUNNER_TEMP/CapyBarrier-Windows-x64.zip" "$env:RUNNER_TEMP/CapyBarrier-Windows-x64.sha256"
+          if ($LASTEXITCODE) { throw 'Upload failed' }
+
+  macos:
+    needs: prepare
+    runs-on: macos-14
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Install native Apple Silicon dependencies
+        run: |
+          test "$(uname -m)" = arm64
+          brew install cmake qt@5 openssl@3
+      - name: Configure, build and run the complete test suite
+        run: |
+          cmake -S . -B build-native -DCMAKE_BUILD_TYPE=Release \
+            -DBARRIER_BUILD_INSTALLER=OFF -DBARRIER_BUILD_TESTS=ON \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            "-DCMAKE_OSX_SYSROOT=$(xcrun --sdk macosx --show-sdk-path)" \
+            "-DCMAKE_PREFIX_PATH=$(brew --prefix qt@5)" \
+            "-DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" \
+            "-DCMAKE_PROJECT_INCLUDE=$GITHUB_WORKSPACE/agent/tests/verify-openssl.cmake"
+          cmake --build build-native --parallel 3
+          ctest --test-dir build-native --output-on-failure
+      - name: Package, deploy libraries and ad-hoc sign
+        run: |
+          package="$RUNNER_TEMP/CapyBarrier-macOS-arm64"
+          app="$package/CapyBarrier.app"
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$package/licenses"
+          cp build-native/bin/barrier build-native/bin/barrierc build-native/bin/barriers "$app/Contents/MacOS/"
+          cp dist/macos/bundle/Barrier.app/Contents/Resources/Barrier.icns "$app/Contents/Resources/"
+          cp dist/macos/bundle/Barrier.app/Contents/PkgInfo "$app/Contents/"
+          sed 's/@BARRIER_VERSION@/2.4.0/g' dist/macos/bundle/Barrier.app/Contents/Info.plist.in > "$app/Contents/Info.plist"
+          plutil -replace CFBundleIdentifier -string dev.wombat.capybarrier.preview "$app/Contents/Info.plist"
+          plutil -replace CFBundleName -string CapyBarrier "$app/Contents/Info.plist"
+          plutil -replace CFBundleDisplayName -string CapyBarrier "$app/Contents/Info.plist"
+          printf '14.0\n' > "$RUNNER_TEMP/packaged-minimum-os.txt"
+          "$(brew --prefix qt@5)/bin/macdeployqt" "$app" \
+            "-executable=$app/Contents/MacOS/barrierc" "-executable=$app/Contents/MacOS/barriers"
+          for binary in barrier barrierc barriers; do
+            test "$(lipo -archs "$app/Contents/MacOS/$binary")" = arm64
+          done
+          find "$app" -type f -print0 > "$RUNNER_TEMP/packaged-files.txt"
+          while IFS= read -r -d '' binary; do
+            description="$(file -b "$binary")"
+            if [[ "$description" == *Mach-O* ]]; then
+              lipo -verify_arch arm64 "$binary"
+              dependencies="$(otool -L "$binary")"
+              if [[ "$dependencies" == *'/opt/homebrew/'* || "$dependencies" == *'/usr/local/'* ]]; then
+                echo "Unbundled dependency: $binary" >&2
+                exit 1
+              fi
+              load_commands="$(otool -l "$binary")"
+              printf '%s\n' "$load_commands" | awk \
+                '$1 == "cmd" {legacy = ($2 == "LC_VERSION_MIN_MACOSX")} $1 == "minos" || (legacy && $1 == "version") {print $2}' \
+                >> "$RUNNER_TEMP/packaged-minimum-os.txt"
+            fi
+          done < "$RUNNER_TEMP/packaged-files.txt"
+          minimum_os="$(sort -t. -k1,1n -k2,2n -k3,3n "$RUNNER_TEMP/packaged-minimum-os.txt" | tail -1)"
+          plutil -replace LSMinimumSystemVersion -string "$minimum_os" "$app/Contents/Info.plist"
+          printf 'Minimum macOS: %s\n' "$minimum_os" > "$package/MACOS_REQUIREMENTS.txt"
+          codesign --force --deep --sign - --timestamp=none "$app"
+          codesign --verify --deep --strict "$app"
+          for binary in barrierc barriers; do
+            status=0
+            "$app/Contents/MacOS/$binary" --version > "$RUNNER_TEMP/$binary-version.txt" 2>&1 || status=$?
+            test "$status" = 3
+            grep -q 'Protocol version 2.0' "$RUNNER_TEMP/$binary-version.txt"
+          done
+          cp LICENSE docs/superpowers/verification/native-preview.md "$package/"
+          printf '%s\n' "$GITHUB_SHA" > "$package/SOURCE_COMMIT.txt"
+          brew deps --union qt@5 openssl@3 > "$RUNNER_TEMP/license-formulae.txt"
+          printf 'qt@5\nopenssl@3\n' >> "$RUNNER_TEMP/license-formulae.txt"
+          while IFS= read -r formula; do
+            prefix="$(brew --prefix "$formula")"
+            mkdir -p "$package/licenses/$formula"
+            brew info --json=v2 "$formula" > "$package/licenses/$formula/FORMULA.json"
+            find -L "$prefix" -type f \( -iname '*license*' -o -iname '*licence*' -o -iname 'copying*' \
+              -o -iname 'copyright*' -o -iname 'notice*' -o -iname '*gpl*.txt' -o -iname 'FTL.TXT' \) \
+              -print0 > "$RUNNER_TEMP/license-files.txt"
+            while IFS= read -r -d '' notice; do
+              relative="${notice#"$prefix/"}"
+              mkdir -p "$package/licenses/$formula/$(dirname "$relative")"
+              cp "$notice" "$package/licenses/$formula/$relative"
+            done < "$RUNNER_TEMP/license-files.txt"
+          done < "$RUNNER_TEMP/license-formulae.txt"
+          for license in LICENSE.LGPL3 LICENSE.GPL3 LICENSE.GPL3-EXCEPT LICENSE.FDL; do
+            curl --fail --location "https://raw.githubusercontent.com/qt/qtbase/v5.15.2/$license" -o "$package/licenses/Qt-$license"
+          done
+          ditto -c -k --sequesterRsrc --keepParent "$package" "$RUNNER_TEMP/CapyBarrier-macOS-arm64.zip"
+          cd "$RUNNER_TEMP"
+          shasum -a 256 CapyBarrier-macOS-arm64.zip > CapyBarrier-macOS-arm64.sha256
+      - name: Upload to the draft only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$PREVIEW_TAG" "$RUNNER_TEMP/CapyBarrier-macOS-arm64.zip" "$RUNNER_TEMP/CapyBarrier-macOS-arm64.sha256"
+
+  publish:
+    needs: [windows, macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Publish only after both tested packages are uploaded
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release edit "$PREVIEW_TAG" --draft=false --prerelease --latest=false

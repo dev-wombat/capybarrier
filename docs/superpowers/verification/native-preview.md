@@ -1,0 +1,51 @@
+# CapyBarrier native preview
+
+Experimental build of the current fork, not the completed CapyBarrier roadmap.
+The GUI still displays the upstream Barrier name/version. Use matching preview
+packages on both machines; upstream Barrier protocol 1 clients cannot connect.
+
+## Downloads and first run
+
+- Windows 11 x64: extract **all** of `CapyBarrier-Windows-x64.zip`, then run
+  `barrier.exe`. Keep its DLLs and plugins beside it. No build tools are needed.
+- Apple Silicon (M1/M2/M3), macOS 14 or newer: extract `CapyBarrier-macOS-arm64.zip`, move
+  `CapyBarrier.app` to `/Applications`, then open it. It is ad-hoc signed, not
+  Developer ID signed or notarized. If macOS blocks it, verify the source and
+  checksum before using Privacy & Security's per-app Open Anyway control.
+  Do not disable Gatekeeper globally. Allow Accessibility and Input Monitoring
+  for the application when required, then restart it.
+  Check `MACOS_REQUIREMENTS.txt` for the exact minimum required by the bundled
+  libraries; it is also recorded in the app's Info.plist.
+- Stop other Barrier/Input Leap/Synergy instances before testing. Existing
+  Barrier settings/profile directories may be shared; back them up first.
+- The machine with the keyboard/mouse is the server; the other is the client.
+  Start with manual server IP entry on the same trusted LAN. Bonjour discovery
+  on Windows needs a running Bonjour service; the included client DLL alone
+  does not install that service. Manual IP avoids this dependency.
+- Keep TLS enabled and compare/approve the peer certificate fingerprint.
+  Allow the application on the private-network firewall only, not the internet.
+
+## What to test
+
+1. Connect and move the pointer between screens; type and scroll on the peer.
+2. Copy/paste plain text in both directions.
+3. Disconnect/reconnect the network and check input resumes without restarting.
+
+Image clipboard improvements, native file/folder drag-and-drop, the new calm
+status-first GUI, and fully automatic file-transfer replay are **unfinished**.
+Do not use file transfer for important data or interpret a successful build as
+proof of these features. Two-physical-machine acceptance remains pending.
+
+## Build and verification
+
+`.github/workflows/native-preview.yml` builds on standard Windows/macOS runners
+in this public repository. It runs the existing complete CTest suite, packages
+the GUI/client/server and runtime dependencies, checks CLI startup and binary
+architecture, and uploads ZIPs plus per-platform SHA-256 lists to a draft.
+The draft becomes a pre-release only after both platform jobs succeed.
+The ZIPs contain `SOURCE_COMMIT.txt`, this guide and license notices; the exact
+source and dependency recipes remain available at the release's Git tag.
+
+macOS uses Homebrew Qt 5/OpenSSL 3; Windows uses Qt 5.15.2 MSVC and a pinned
+vcpkg revision for OpenSSL 3/Bonjour. Windows Qt is a legacy runtime; this is a
+trusted-LAN trial, not a security-reviewed production distribution.
