@@ -125,8 +125,8 @@ jobs:
 
   macos:
     needs: prepare
-    runs-on: macos-14
-    timeout-minutes: 45
+    runs-on: macos-15
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
@@ -151,9 +151,18 @@ jobs:
       - name: Build Apple Silicon binaries
         run: |
           cmake --build build-native --parallel 3
-      - name: Run the complete test suite with live diagnostics
+      - name: Run core unit tests
+        timeout-minutes: 7
         run: |
-          ctest --test-dir build-native --verbose --timeout 300
+          ctest --test-dir build-native --verbose --timeout 300 --no-tests=error -R '^unittests$'
+      - name: Run GUI unit tests
+        timeout-minutes: 7
+        run: |
+          ctest --test-dir build-native --verbose --timeout 300 --no-tests=error -R '^guiunittests$'
+      - name: Run native integration tests
+        timeout-minutes: 7
+        run: |
+          ctest --test-dir build-native --verbose --timeout 300 --no-tests=error -R '^integtests$'
       - name: Package, deploy libraries and ad-hoc sign
         run: |
           package="$RUNNER_TEMP/CapyBarrier-macOS-arm64"
