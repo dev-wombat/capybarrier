@@ -364,6 +364,12 @@ ArchNetworkBSD::pollSocket(PollEntry pe[], int num, double timeout)
         if ((pfd[i].revents & POLLOUT) != 0) {
             pe[i].m_revents |= kPOLLOUT;
         }
+        if ((pfd[i].revents & POLLHUP) != 0) {
+            // A hung-up descriptor still needs servicing: reads drain any
+            // buffered bytes/EOF and writes report the closed peer. Without
+            // this, macOS can return HUP alone and spin without flushing.
+            pe[i].m_revents |= pe[i].m_events & (kPOLLIN | kPOLLOUT);
+        }
         if ((pfd[i].revents & POLLERR) != 0) {
             pe[i].m_revents |= kPOLLERR;
         }
