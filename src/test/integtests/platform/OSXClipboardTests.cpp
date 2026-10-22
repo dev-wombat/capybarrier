@@ -34,10 +34,12 @@ TEST(OSXClipboardTests, empty_openCalled_returnsTrue)
 TEST(OSXClipboardTests, empty_singleFormat_hasReturnsFalse)
 {
     OSXClipboard clipboard;
-    clipboard.open(0);
+    ASSERT_TRUE(clipboard.open(0));
+    ASSERT_TRUE(clipboard.empty());
     clipboard.add(OSXClipboard::kText, "barrier rocks!");
+    ASSERT_TRUE(clipboard.has(OSXClipboard::kText));
 
-    clipboard.empty();
+    ASSERT_TRUE(clipboard.empty());
 
     bool actual = clipboard.has(OSXClipboard::kText);
     EXPECT_EQ(false, actual);
@@ -46,7 +48,8 @@ TEST(OSXClipboardTests, empty_singleFormat_hasReturnsFalse)
 TEST(OSXClipboardTests, add_newValue_valueWasStored)
 {
     OSXClipboard clipboard;
-    clipboard.open(0);
+    ASSERT_TRUE(clipboard.open(0));
+    ASSERT_TRUE(clipboard.empty());
 
     clipboard.add(IClipboard::kText, "barrier rocks!");
 
@@ -57,7 +60,8 @@ TEST(OSXClipboardTests, add_newValue_valueWasStored)
 TEST(OSXClipboardTests, add_replaceValue_valueWasReplaced)
 {
     OSXClipboard clipboard;
-    clipboard.open(0);
+    ASSERT_TRUE(clipboard.open(0));
+    ASSERT_TRUE(clipboard.empty());
 
     clipboard.add(IClipboard::kText, "barrier rocks!");
     clipboard.add(IClipboard::kText, "maxivista sucks"); // haha, just kidding.
