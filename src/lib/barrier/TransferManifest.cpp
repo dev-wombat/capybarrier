@@ -27,7 +27,7 @@ readUnsigned(const std::string& text, std::string::size_type& position, std::uin
 	value = 0;
 	while (position < text.size() && text[position] >= '0' && text[position] <= '9') {
 		const std::uint64_t digit = static_cast<std::uint64_t>(text[position] - '0');
-		if (value > (std::numeric_limits<std::uint64_t>::max() - digit) / 10) {
+		if (value > ((std::numeric_limits<std::uint64_t>::max)() - digit) / 10) {
 			return false;
 		}
 		value = value * 10 + digit;

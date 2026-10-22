@@ -168,7 +168,7 @@ StreamChunker::sendTransferFile(const char* filename, IEventQueue* events, void*
 	std::uint64_t offset = transferOffset(id);
 	const std::uint64_t size = manifest.entries()[0].size;
 	success = success && offset <= size &&
-		offset <= static_cast<std::uint64_t>(std::numeric_limits<std::streamoff>::max());
+		offset <= static_cast<std::uint64_t>((std::numeric_limits<std::streamoff>::max)());
 	if (success) {
 		file.seekg(static_cast<std::streamoff>(offset));
 		success = file.good();

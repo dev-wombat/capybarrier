@@ -77,7 +77,7 @@ jobs:
           if ($LASTEXITCODE) { throw 'Configure failed' }
           cmake --build build-native --config Release --parallel 4
           if ($LASTEXITCODE) { throw 'Build failed' }
-          ctest --test-dir build-native -C Release --output-on-failure
+          ctest --test-dir build-native -C Release --verbose --timeout 300
           if ($LASTEXITCODE) { throw 'Tests failed' }
       - name: Package and check runtime startup
         run: |
@@ -138,7 +138,7 @@ jobs:
         run: |
           test "$(uname -m)" = arm64
           brew install cmake qt@5 openssl@3
-      - name: Configure, build and run the complete test suite
+      - name: Configure Apple Silicon build
         run: |
           cmake -S . -B build-native -DCMAKE_BUILD_TYPE=Release \
             -DBARRIER_BUILD_INSTALLER=OFF -DBARRIER_BUILD_TESTS=ON \
@@ -148,8 +148,12 @@ jobs:
             "-DCMAKE_PREFIX_PATH=$(brew --prefix qt@5)" \
             "-DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" \
             "-DCMAKE_PROJECT_INCLUDE=$GITHUB_WORKSPACE/agent/tests/verify-openssl.cmake"
+      - name: Build Apple Silicon binaries
+        run: |
           cmake --build build-native --parallel 3
-          ctest --test-dir build-native --output-on-failure
+      - name: Run the complete test suite with live diagnostics
+        run: |
+          ctest --test-dir build-native --verbose --timeout 300
       - name: Package, deploy libraries and ad-hoc sign
         run: |
           package="$RUNNER_TEMP/CapyBarrier-macOS-arm64"

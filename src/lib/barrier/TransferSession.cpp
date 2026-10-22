@@ -128,7 +128,7 @@ TransferSession::writeChunk(std::size_t entry, std::uint64_t offset, const std::
 {
 	if (m_finalized || entry >= m_entries.size() || m_entries[entry].isDirectory ||
 		data.size() > PROTOCOL_MAX_STRING_LENGTH || offset > m_entries[entry].size ||
-		offset > static_cast<std::uint64_t>(std::numeric_limits<std::streamoff>::max()) ||
+		offset > static_cast<std::uint64_t>((std::numeric_limits<std::streamoff>::max)()) ||
 		offset != m_offsets[entry].offset || data.size() > m_entries[entry].size - offset) {
 		return false;
 	}
