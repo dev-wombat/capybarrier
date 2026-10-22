@@ -70,6 +70,24 @@ TEST(OSXClipboardTests, add_replaceValue_valueWasReplaced)
     EXPECT_EQ("maxivista sucks", actual);
 }
 
+TEST(OSXClipboardTests, replacingTextPreservesHtmlForAnotherReader)
+{
+    OSXClipboard clipboard;
+    ASSERT_TRUE(clipboard.open(0));
+    ASSERT_TRUE(clipboard.empty());
+    clipboard.add(IClipboard::kText, "first");
+    clipboard.add(IClipboard::kHTML, "<b>keep</b>");
+    ASSERT_EQ("first", clipboard.get(IClipboard::kText));
+    clipboard.add(IClipboard::kText, "second");
+    clipboard.close();
+
+    OSXClipboard reader;
+    ASSERT_TRUE(reader.open(0));
+    EXPECT_EQ("second", reader.get(IClipboard::kText));
+    EXPECT_EQ("<b>keep</b>", reader.get(IClipboard::kHTML));
+    reader.close();
+}
+
 TEST(OSXClipboardTests, open_timeIsZero_returnsTrue)
 {
     OSXClipboard clipboard;

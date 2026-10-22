@@ -97,6 +97,15 @@ void OSXClipboard::add(EFormat format, const std::string& data)
     if (m_pboard == NULL)
         return;
 
+    if (has(format)) {
+        // Republish all supported formats rather than append a duplicate flavor.
+        Clipboard replacement;
+        if (!IClipboard::copy(&replacement, this)) return;
+        replacement.add(format, data);
+        IClipboard::copy(this, &replacement);
+        return;
+    }
+
     LOG((CLOG_DEBUG "add %d bytes to clipboard format: %d", data.size(), format));
     if (format == IClipboard::kText) {
         LOG((CLOG_DEBUG " format of data to be added to clipboard was kText"));
@@ -118,14 +127,23 @@ void OSXClipboard::add(EFormat format, const std::string& data)
             std::string osXData = converter->fromIClipboard(data);
             CFStringRef flavorType = converter->getOSXFormat();
             CFDataRef dataRef = CFDataCreate(kCFAllocatorDefault, (UInt8 *)osXData.data(), osXData.size());
+            if (dataRef == NULL) {
+                LOG((CLOG_ERR "failed to allocate clipboard data"));
+                return;
+            }
             PasteboardItemID itemID = 0;
 
-            PasteboardPutItemFlavor(
+            OSStatus err = PasteboardPutItemFlavor(
                 m_pboard,
                 itemID,
                 flavorType,
                 dataRef,
                 kPasteboardFlavorNoFlags);
+            CFRelease(dataRef);
+            if (err != noErr) {
+                LOG((CLOG_ERR "failed to add clipboard flavor: error %i", err));
+                return;
+            }
 
             LOG((CLOG_DEBUG "added %d bytes to clipboard format: %d", data.size(), format));
         }
@@ -164,7 +182,8 @@ OSXClipboard::has(EFormat format) const
         return false;
 
     PasteboardItemID item;
-    PasteboardGetItemIdentifier(m_pboard, (CFIndex) 1, &item);
+    if (PasteboardGetItemIdentifier(m_pboard, (CFIndex) 1, &item) != noErr)
+        return false;
 
     for (ConverterList::const_iterator index = m_converters.begin();
             index != m_converters.end(); ++index) {
