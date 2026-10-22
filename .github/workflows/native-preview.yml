@@ -167,32 +167,36 @@ jobs:
       - name: Build Apple Silicon binaries
         run: |
           cmake --build build-native --parallel 3
+      - name: Repeat the targeted wakeup and TCP reconnect regressions
+        timeout-minutes: 4
+        run: |
+          python3 - <<'PY'
+          import subprocess
+          cases = [
+              ['build-native/bin/unittests', '--gtest_filter=ArchNetworkTests.*', '--gtest_repeat=20'],
+              ['build-native/bin/integtests',
+               '--gtest_filter=TransferRoutingNetworkTests.changedManifestIsRejectedAfterTcpReceiverReconnect',
+               '--gtest_repeat=10'],
+          ]
+          for command in cases:
+              print('Native regression:', ' '.join(command), flush=True)
+              test = subprocess.Popen(command)
+              try:
+                  result = test.wait(timeout=90)
+              except subprocess.TimeoutExpired:
+                  try:
+                      subprocess.run(['/usr/bin/sample', str(test.pid), '2'], timeout=10, check=False)
+                  finally:
+                      test.kill()
+                      test.wait(timeout=10)
+                  raise SystemExit('Native regression timed out; stack sample printed above')
+              if result:
+                  raise SystemExit(result)
+          PY
       - name: Run core unit tests
         timeout-minutes: 7
         run: |
           ctest --test-dir build-native --verbose --timeout 300 --no-tests=error -R '^unittests$'
-      - name: Repeat the targeted wakeup and TCP reconnect regressions
-        timeout-minutes: 3
-        run: |
-          build-native/bin/unittests --gtest_filter='ArchNetworkTests.*' --gtest_repeat=20
-          python3 - <<'PY'
-          import subprocess
-          test = subprocess.Popen([
-              'build-native/bin/integtests',
-              '--gtest_filter=TransferRoutingNetworkTests.changedManifestIsRejectedAfterTcpReceiverReconnect',
-              '--gtest_repeat=10',
-          ])
-          try:
-              result = test.wait(timeout=90)
-          except subprocess.TimeoutExpired:
-              try:
-                  subprocess.run(['/usr/bin/sample', str(test.pid), '2'], timeout=10, check=False)
-              finally:
-                  test.kill()
-                  test.wait()
-              raise SystemExit('TCP regression timed out; native stack sample printed above')
-          raise SystemExit(result)
-          PY
       - name: Run GUI unit tests
         timeout-minutes: 7
         run: |
