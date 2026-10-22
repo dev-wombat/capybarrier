@@ -227,7 +227,7 @@ jobs:
           while IFS= read -r -d '' binary; do
             description="$(file -b "$binary")"
             if [[ "$description" == *Mach-O* ]]; then
-              lipo -verify_arch arm64 "$binary"
+              lipo "$binary" -verify_arch arm64
               dependencies="$(otool -L "$binary")"
               if [[ "$dependencies" == *'/opt/homebrew/'* || "$dependencies" == *'/usr/local/'* ]]; then
                 echo "Unbundled dependency: $binary" >&2
