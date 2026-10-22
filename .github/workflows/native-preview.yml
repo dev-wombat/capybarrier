@@ -83,7 +83,7 @@ jobs:
         run: |
           $package = "$env:RUNNER_TEMP/CapyBarrier-Windows-x64"
           New-Item -ItemType Directory -Path $package | Out-Null
-          Copy-Item build-native/bin/Release/barrier.exe,build-native/bin/Release/barrierc.exe,build-native/bin/Release/barriers.exe,build-native/bin/Release/*.dll $package
+          Copy-Item build-native/bin/Release/barrier.exe,build-native/bin/Release/barrierc.exe,build-native/bin/Release/barriers.exe,build-native/bin/Release/barrierd.exe,build-native/bin/Release/*.dll $package
           Copy-Item "$env:RUNNER_TEMP/vcpkg/installed/x64-windows/bin/*.dll" $package
           & windeployqt --release --no-translations "$package/barrier.exe"
           if ($LASTEXITCODE) { throw 'Qt deployment failed' }
@@ -98,7 +98,7 @@ jobs:
           foreach ($license in @('LICENSE.LGPL3','LICENSE.GPL3','LICENSE.GPL3-EXCEPT','LICENSE.FDL')) {
             Invoke-WebRequest "https://raw.githubusercontent.com/qt/qtbase/v5.15.2/$license" -OutFile "$package/licenses/Qt-$license"
           }
-          foreach ($binary in @('barrier','barrierc','barriers')) {
+          foreach ($binary in @('barrier','barrierc','barriers','barrierd')) {
             $bytes = [System.IO.File]::ReadAllBytes("$package/$binary.exe")
             $pe = [BitConverter]::ToInt32($bytes, 0x3c)
             if ([BitConverter]::ToUInt16($bytes, $pe + 4) -ne 0x8664) { throw "$binary is not x64" }
@@ -109,6 +109,21 @@ jobs:
           foreach ($binary in @('barrierc','barriers')) {
             $output = & "$package/$binary.exe" --version 2>&1
             if ($LASTEXITCODE -ne 3 -or "$output" -notmatch 'Protocol version 2.0') { throw "$binary cannot start: $output" }
+          }
+          if (Get-NetTCPConnection -LocalPort 24801 -State Listen -ErrorAction SilentlyContinue) { throw 'IPC port already occupied' }
+          $daemon = Start-Process -FilePath "$package/barrierd.exe" -ArgumentList '-f' -PassThru
+          try {
+            $listener = $null
+            for ($attempt = 0; $attempt -lt 30; $attempt++) {
+              if ($daemon.HasExited) { throw 'Packaged foreground daemon exited' }
+              $listener = Get-NetTCPConnection -LocalPort 24801 -State Listen -ErrorAction SilentlyContinue |
+                Where-Object OwningProcess -eq $daemon.Id
+              if ($listener) { break }
+              Start-Sleep -Milliseconds 200
+            }
+            if (!$listener) { throw 'Packaged foreground daemon did not open GUI IPC' }
+          } finally {
+            if (!$daemon.HasExited) { Stop-Process -Id $daemon.Id -Force }
           }
           $global:LASTEXITCODE = 0
           $env:PATH = $buildPath

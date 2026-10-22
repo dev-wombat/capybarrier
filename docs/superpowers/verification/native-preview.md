@@ -7,7 +7,8 @@ packages on both machines; upstream Barrier protocol 1 clients cannot connect.
 ## Downloads and first run
 
 - Windows 11 x64: extract **all** of `CapyBarrier-Windows-x64.zip`, then run
-  `barrier.exe`. Keep its DLLs and plugins beside it. No build tools are needed.
+  the foreground daemon before `barrier.exe` (see below). Keep its DLLs and
+  plugins beside it. No build tools are needed.
 - Apple Silicon (M1/M2/M3), macOS 14 or newer: extract `CapyBarrier-macOS-arm64.zip`, move
   `CapyBarrier.app` to `/Applications`, then open it. It is ad-hoc signed, not
   Developer ID signed or notarized. If macOS blocks it, verify the source and
@@ -25,6 +26,23 @@ packages on both machines; upstream Barrier protocol 1 clients cannot connect.
 - Keep TLS enabled and compare/approve the peer certificate fingerprint.
   Allow the application on the private-network firewall only, not the internet.
 
+### Windows ZIP startup (no service installation)
+
+The Windows GUI needs the included `barrierd.exe` for IPC, even when no Windows
+service is installed. Stop any existing Barrier service/instances first; do not
+replace another installation's service. Extract to a folder you can write to.
+Open PowerShell in that folder and run:
+
+```powershell
+$capyDaemon = Start-Process -FilePath .\barrierd.exe -ArgumentList '-f' -PassThru
+Start-Process -FilePath .\barrier.exe
+```
+
+Keep the daemon running while sharing input. After clicking Stop in the GUI and
+closing it, stop only the daemon started above with `Stop-Process -Id $capyDaemon.Id`
+in that same PowerShell session. This preview does not install a service, start
+at login, or promise input on the Windows login/UAC secure desktop.
+
 ## What to test
 
 1. Connect and move the pointer between screens; type and scroll on the peer.
@@ -41,7 +59,8 @@ proof of these features. Two-physical-machine acceptance remains pending.
 `.github/workflows/native-preview.yml` builds on standard Windows/macOS runners
 in this public repository. It runs the existing complete CTest suite, packages
 the GUI/client/server and runtime dependencies, checks CLI startup and binary
-architecture, and uploads ZIPs plus per-platform SHA-256 lists to a draft.
+architecture and Windows foreground-daemon IPC startup, and uploads ZIPs plus
+per-platform SHA-256 lists to a draft.
 The draft becomes a pre-release only after both platform jobs succeed.
 The ZIPs contain `SOURCE_COMMIT.txt`, this guide and license notices; the exact
 source and dependency recipes remain available at the release's Git tag.

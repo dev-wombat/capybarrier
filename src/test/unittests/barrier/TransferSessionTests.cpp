@@ -252,7 +252,7 @@ TEST(TransferSessionTests, removesPartialFilesWhenCancelled)
 TEST(TransferSessionTests, copiesFinalizedFileToDropDirectory)
 {
 	const barrier::fs::path root = barrier::fs::temp_directory_path() / "capybarrier-transfer-drop-source";
-	const barrier::fs::path drop = barrier::fs::temp_directory_path() / "capybarrier-transfer-drop-target";
+	const barrier::fs::path drop = barrier::fs::canonical(barrier::fs::temp_directory_path()) / "capybarrier-transfer-drop-target";
 	barrier::fs::remove_all(root);
 	barrier::fs::remove_all(drop);
 	TransferManifest manifest;
@@ -275,7 +275,7 @@ class TransferDeliveryTests : public testing::Test {
 protected:
 	void SetUp() override
 	{
-		root = barrier::fs::temp_directory_path() / "capybarrier-delivery-tests";
+		root = barrier::fs::canonical(barrier::fs::temp_directory_path()) / "capybarrier-delivery-tests";
 		barrier::fs::remove_all(root);
 		barrier::fs::create_directories(root);
 		source = root / "source";
@@ -423,6 +423,19 @@ TEST_F(TransferDeliveryTests, finalizedFileCannotBeModifiedByFurtherChunks)
 }
 
 #if SYSAPI_UNIX
+TEST_F(TransferDeliveryTests, refusesSymlinkAncestorWithoutWritingOutsideIt)
+{
+	ASSERT_TRUE(session.accept(manifest, source.string()));
+	ASSERT_TRUE(session.writeChunk(0, 0, "abcd"));
+	ASSERT_TRUE(session.finalize());
+	const auto outside = root / "outside";
+	const auto alias = root / "alias";
+	barrier::fs::create_directory(outside);
+	barrier::fs::create_directory_symlink(outside, alias);
+	EXPECT_FALSE(session.copyTo((alias / "nested").string()));
+	EXPECT_FALSE(barrier::fs::exists(outside / "nested"));
+}
+
 TEST_F(TransferDeliveryTests, refusesSymlinkDestinationWithoutWritingOutsideIt)
 {
 	ASSERT_TRUE(session.accept(manifest, source.string()));

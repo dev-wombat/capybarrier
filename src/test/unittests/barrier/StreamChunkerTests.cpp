@@ -104,7 +104,7 @@ class TransferSenderTests : public testing::Test {
 protected:
     void SetUp() override
     {
-        root = barrier::fs::temp_directory_path() / "capybarrier-sender-tests";
+        root = barrier::fs::canonical(barrier::fs::temp_directory_path()) / "capybarrier-sender-tests";
         barrier::fs::create_directories(root);
         path = root / "file.txt";
     }
