@@ -3,6 +3,9 @@
 Experimental build of the current fork, not the completed CapyBarrier roadmap.
 The GUI still displays the upstream Barrier name/version. Use matching preview
 packages on both machines; upstream Barrier protocol 1 clients cannot connect.
+Some releases contain only the macOS package; download only the platform assets
+actually attached to that release. Cross-release device interoperability and
+two-physical-machine acceptance are not established by a successful CI run.
 
 ## Downloads and first run
 
@@ -61,7 +64,10 @@ in this public repository. It runs the existing complete CTest suite, packages
 the GUI/client/server and runtime dependencies, checks CLI startup and binary
 architecture and Windows foreground-daemon IPC startup, and uploads ZIPs plus
 per-platform SHA-256 lists to a draft.
-The draft becomes a pre-release only after both platform jobs succeed.
+The draft becomes a pre-release only after every selected platform succeeds.
+The `agent/macos-preview` branch selects Mac only, running all Mac test suites
+plus repeated wakeup/TCP regressions; it does not rebuild or certify Windows.
+The `agent/release-preview` branch still requires both platforms to succeed.
 The ZIPs contain `SOURCE_COMMIT.txt`, this guide and license notices; the exact
 source and dependency recipes remain available at the release's Git tag.
 

@@ -138,10 +138,9 @@ ArchMultithreadPosix::~ArchMultithreadPosix()
 }
 
 void
-ArchMultithreadPosix::setNetworkDataForCurrentThread(void* data)
+ArchMultithreadPosix::setNetworkDataForThread(ArchThread thread, void* data)
 {
     std::lock_guard<std::mutex> lock(m_threadMutex);
-    ArchThreadImpl* thread = find(pthread_self());
     thread->m_networkData = data;
 }
 

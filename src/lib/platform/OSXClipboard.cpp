@@ -101,7 +101,9 @@ void OSXClipboard::add(EFormat format, const std::string& data)
         // Republish all supported formats rather than append a duplicate flavor.
         Clipboard replacement;
         if (!IClipboard::copy(&replacement, this)) return;
+        replacement.open(getTime());
         replacement.add(format, data);
+        replacement.close();
         IClipboard::copy(this, &replacement);
         return;
     }

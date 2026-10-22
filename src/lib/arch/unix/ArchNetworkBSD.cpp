@@ -885,6 +885,7 @@ ArchNetworkBSD::getUnblockPipe()
 const int*
 ArchNetworkBSD::getUnblockPipeForThread(ArchThread thread)
 {
+    ArchMutexLock lock(m_mutex);
     ArchMultithreadPosix* mt = ArchMultithreadPosix::getInstance();
     int* unblockPipe          = (int*)mt->getNetworkDataForThread(thread);
     if (unblockPipe == NULL) {
@@ -892,7 +893,7 @@ ArchNetworkBSD::getUnblockPipeForThread(ArchThread thread)
         if (pipe(unblockPipe) != -1) {
             try {
                 setBlockingOnSocket(unblockPipe[0], false);
-                mt->setNetworkDataForCurrentThread(unblockPipe);
+                mt->setNetworkDataForThread(thread, unblockPipe);
             }
             catch (...) {
                 delete[] unblockPipe;

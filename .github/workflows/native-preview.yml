@@ -3,7 +3,7 @@ name: Native preview release
 on:
   workflow_dispatch:
   push:
-    branches: [agent/release-preview]
+    branches: [agent/release-preview, agent/macos-preview]
 
 permissions:
   contents: read
@@ -38,6 +38,7 @@ jobs:
 
   windows:
     needs: prepare
+    if: github.ref != 'refs/heads/agent/macos-preview'
     runs-on: windows-2022
     timeout-minutes: 60
     permissions:
@@ -170,6 +171,28 @@ jobs:
         timeout-minutes: 7
         run: |
           ctest --test-dir build-native --verbose --timeout 300 --no-tests=error -R '^unittests$'
+      - name: Repeat the targeted wakeup and TCP reconnect regressions
+        timeout-minutes: 3
+        run: |
+          build-native/bin/unittests --gtest_filter='ArchNetworkTests.*' --gtest_repeat=20
+          python3 - <<'PY'
+          import subprocess
+          test = subprocess.Popen([
+              'build-native/bin/integtests',
+              '--gtest_filter=TransferRoutingNetworkTests.changedManifestIsRejectedAfterTcpReceiverReconnect',
+              '--gtest_repeat=10',
+          ])
+          try:
+              result = test.wait(timeout=90)
+          except subprocess.TimeoutExpired:
+              try:
+                  subprocess.run(['/usr/bin/sample', str(test.pid), '2'], timeout=10, check=False)
+              finally:
+                  test.kill()
+                  test.wait()
+              raise SystemExit('TCP regression timed out; native stack sample printed above')
+          raise SystemExit(result)
+          PY
       - name: Run GUI unit tests
         timeout-minutes: 7
         run: |
@@ -254,11 +277,15 @@ jobs:
 
   publish:
     needs: [windows, macos]
+    if: >-
+      ${{ !cancelled() && needs.macos.result == 'success' &&
+          (needs.windows.result == 'success' ||
+           (github.ref == 'refs/heads/agent/macos-preview' && needs.windows.result == 'skipped')) }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-      - name: Publish only after both tested packages are uploaded
+      - name: Publish only after every selected platform passes
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
